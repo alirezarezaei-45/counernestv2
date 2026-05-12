@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Counter Nest"/>
+<meta name="theme-color" content="#0f0e0c"/>
+<title>Counter Nest</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0e0c;color:#f0e6d3;min-height:100vh;-webkit-font-smoothing:antialiased}
+button,input,select{font-family:inherit;cursor:pointer}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#3a2e1e;border-radius:4px}
+input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#d4820a;cursor:pointer}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+@keyframes popIn{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ── Constants ──────────────────────────────────────────────────────────────
+const SK="counternest_v6";
+const COLORS={
+  bg:"#0f0e0c",surface:"#1a1610",card:"#1e1a12",border:"#2e2618",
+  text:"#f0e6d3",sub:"#c8b48a",muted:"#8a7055",faint:"#6b5a3e"
+};
+const LCOL=["#d4820a","#2563eb","#059669","#e03e6a","#7c3aed","#0891b2","#d85a30","#84cc16"];
+const THEMES={
+  amber:{accent:"#d4820a",light:"#f0a832",dim:"rgba(212,130,10,0.18)",on:"#0f0e0c",name:"Amber"},
+  blue:{accent:"#2563eb",light:"#60a5fa",dim:"rgba(37,99,235,0.18)",on:"#fff",name:"Blue"},
+  green:{accent:"#059669",light:"#34d399",dim:"rgba(5,150,105,0.18)",on:"#fff",name:"Green"},
+  purple:{accent:"#7c3aed",light:"#a78bfa",dim:"rgba(124,58,237,0.18)",on:"#fff",name:"Purple"},
+  gray:{accent:"#6b7280",light:"#d1d5db",dim:"rgba(107,114,128,0.18)",on:"#fff",name:"Gray"},
+};
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
+const now=()=>new Date().toISOString();
+const fmt=iso=>{try{return new Date(iso).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"})}catch{return iso}};
+const fmtFull=iso=>{try{return new Date(iso).toLocaleString()}catch{return iso}};
+const fmtSW=ms=>{const h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60,cs=Math.floor((ms%1000)/10);return h?`${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`:`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${String(cs).padStart(2,"0")}`};
+const fmtDur=ms=>{const h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60;return h?`${h}h ${m}m`:m?`${m}m ${s}s`:`${s}s`};
+
+function loadData(){
+  try{
+    const d=localStorage.getItem(SK);
+    if(d)return JSON.parse(d);
+  }catch{}
+  return{folders:[],cards:[],settings:{theme:"amber",fontSize:14,darkMode:true}};
+}
+function save(d){try{localStorage.setItem(SK,JSON.stringify(d))}catch{}}
+
+// ── CSV ────────────────────────────────────────────────────────────────────
+function makeCSV(rows){
+  return "sep=,\n"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");
+}
+function dlCSV(name,rows){
+  const blob=new Blob(["\uFEFF"+makeCSV(rows)],{type:"text/csv;charset=utf-8;"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+function getFilteredHistory(history,range,from,to){
+  if(!history?.length)return[];
+  if(range==="all")return history;
+  if(range==="custom"){
+    const f=new Date(from),t=new Date(to);t.setHours(23,59,59);
+    return history.filter(h=>new Date(h.at)>=f&&new Date(h.at)<=t);
+  }
+  const cutoff=new Date();
+  if(range==="7d")cutoff.setDate(cutoff.getDate()-7);
+  else if(range==="30d")cutoff.setMonth(cutoff.getMonth()-1);
+  else if(range==="90d")cutoff.setMonth(cutoff.getMonth()-3);
+  else if(range==="1y")cutoff.setFullYear(cutoff.getFullYear()-1);
+  return history.filter(h=>new Date(h.at)>=cutoff);
+}
+function exportCardCSV(card,folderName,range,from,to){
+  const rows=[["Folder","Card","Counter","Value","Change","Date","Action"]];
+  card.counters.forEach(co=>{
+    getFilteredHistory(co.history,range,from,to).forEach(h=>{
+      rows.push([folderName||"(none)",card.name,co.name,h.value,h.delta??0,fmtFull(h.at),h.action]);
+    });
+  });
+  (card.stopwatchSessions||[]).forEach(s=>rows.push([folderName||"(none)",card.name,"Stopwatch",fmtDur(s.duration),"",fmtFull(s.at),"session"]));
+  dlCSV(card.name.replace(/\W+/g,"_")+".csv",rows);
+}
+function exportFolderCSV(folder,cards,range,from,to){
+  const rows=[["Folder","Card","Counter","Value","Change","Date","Action"]];
+  cards.forEach(card=>{
+    card.counters.forEach(co=>{
+      getFilteredHistory(co.history,range,from,to).forEach(h=>{
+        rows.push([folder.name,card.name,co.name,h.value,h.delta??0,fmtFull(h.at),h.action]);
+      });
+    });
+    (card.stopwatchSessions||[]).forEach(s=>rows.push([folder.name,card.name,"Stopwatch",fmtDur(s.duration),"",fmtFull(s.at),"session"]));
+  });
+  dlCSV(folder.name.replace(/\W+/g,"_")+"_folder.csv",rows);
+}
+
+// ── Graph ──────────────────────────────────────────────────────────────────
+const BUCKETS={"30min":30*60000,"2hr":7200000,"12hr":43200000,"daily":86400000};
+function aggregate(history,bucket){
+  if(!history||history.length<2)return history||[];
+  const ms=BUCKETS[bucket]||86400000;
+  const map=new Map();
+  [...history].sort((a,b)=>new Date(a.at)-new Date(b.at)).forEach(h=>{
+    const k=Math.floor(new Date(h.at)/ms)*ms;
+    map.set(k,h.value);
+  });
+  return [...map.entries()].map(([k,v])=>({at:new Date(k).toISOString(),value:v}));
+}
+function catmull(pts){
+  if(!pts.length)return"";
+  if(pts.length===1)return`M${pts[0].x},${pts[0].y}`;
+  let d=`M${pts[0].x},${pts[0].y}`;
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[i+1],p3=pts[Math.min(pts.length-1,i+2)];
+    d+=` C${p1.x+(p2.x-p0.x)/6},${p1.y+(p2.y-p0.y)/6},${p2.x-(p3.x-p1.x)/6},${p2.y-(p3.y-p1.y)/6},${p2.x},${p2.y}`;
+  }
+  return d;
+}
+
+function Graph({series}){
+  const [bucket,setBucket]=useState("daily");
+  const [hidden,setHidden]=useState([]);
+  const [tip,setTip]=useState(null);
+  const T=useTheme();
+
+  const W=Math.min(340,window.innerWidth-48);
+  const H=190,PL=42,PR=12,PT=14,PB=40;
+  const gW=W-PL-PR,gH=H-PT-PB;
+
+  const active=series.filter(s=>!hidden.includes(s.id)).map(s=>({
+    ...s,pts:aggregate(s.history,bucket)
+  })).filter(s=>s.pts.length>=2);
+
+  const allT=active.flatMap(s=>s.pts.map(p=>+new Date(p.at)));
+  const allV=active.flatMap(s=>s.pts.map(p=>p.value));
+
+  if(!allT.length)return(
+    <div>
+      <BucketRow bucket={bucket} setBucket={setBucket} T={T}/>
+      <Legend series={series} hidden={hidden} setHidden={setHidden}/>
+      <p style={{fontSize:12,color:COLORS.faint,textAlign:"center",padding:"20px 0"}}>Need at least 2 data points per counter.</p>
+    </div>
+  );
+
+  const minT=Math.min(...allT),maxT=Math.max(...allT),rT=maxT-minT||1;
+  const minV=Math.min(...allV),maxV=Math.max(...allV),pad=(maxV-minV)*0.12||1;
+  const lo=minV-pad,hi=maxV+pad,rV=hi-lo;
+
+  const xp=t=>PL+(t-minT)/rT*gW;
+  const yp=v=>PT+(1-(v-lo)/rV)*gH;
+
+  const nX=Math.min(5,allT.length);
+  const xTicks=Array.from({length:nX},(_,i)=>minT+i*(rT/(nX-1||1)));
+  const yTicks=Array.from({length:4},(_,i)=>lo+i*(rV/3));
+
+  return(
+    <div>
+      <BucketRow bucket={bucket} setBucket={setBucket} T={T}/>
+      <Legend series={series} hidden={hidden} setHidden={setHidden}/>
+      <svg width={W} height={H} style={{display:"block",margin:"0 auto",overflow:"visible"}}>
+        <defs>
+          {active.map(s=>(
+            <linearGradient key={s.id} id={`g${s.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={s.color} stopOpacity="0.2"/>
+              <stop offset="100%" stopColor={s.color} stopOpacity="0"/>
+            </linearGradient>
+          ))}
+        </defs>
+        {yTicks.map((v,i)=>(
+          <g key={i}>
+            <line x1={PL} x2={PL+gW} y1={yp(v)} y2={yp(v)} stroke={COLORS.border} strokeWidth="0.5"/>
+            <text x={PL-5} y={yp(v)+4} textAnchor="end" fill={COLORS.faint} fontSize="9">{Math.round(v)}</text>
+          </g>
+        ))}
+        {xTicks.map((t,i)=>(
+          <text key={i} x={xp(t)} y={H-4} textAnchor="middle" fill={COLORS.faint} fontSize="9">{fmt(new Date(t).toISOString())}</text>
+        ))}
+        <line x1={PL} x2={PL} y1={PT} y2={PT+gH} stroke={COLORS.border} strokeWidth="1"/>
+        <line x1={PL} x2={PL+gW} y1={PT+gH} y2={PT+gH} stroke={COLORS.border} strokeWidth="1"/>
+        {active.map(s=>{
+          const mapped=s.pts.map(p=>({x:xp(+new Date(p.at)),y:yp(p.value),v:p.value,at:p.at}));
+          const last=mapped[mapped.length-1];
+          return(
+            <g key={s.id}>
+              <path d={catmull(mapped)+` L${last.x},${PT+gH} L${mapped[0].x},${PT+gH} Z`} fill={`url(#g${s.id})`}/>
+              <path d={catmull(mapped)} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinecap="round"/>
+              {mapped.map((p,i)=>(
+                <circle key={i} cx={p.x} cy={p.y} r={tip&&tip.id===s.id&&tip.i===i?6:3.5}
+                  fill={s.color} stroke="#0f0e0c" strokeWidth="1.5" style={{cursor:"pointer"}}
+                  onMouseEnter={()=>setTip({id:s.id,i,x:p.x,y:p.y,v:p.v,at:p.at,label:s.label,color:s.color})}
+                  onMouseLeave={()=>setTip(null)}
+                  onTouchStart={()=>setTip({id:s.id,i,x:p.x,y:p.y,v:p.v,at:p.at,label:s.label,color:s.color})}/>
+              ))}
+            </g>
+          );
+        })}
+        {tip&&(()=>{
+          const tx=Math.min(Math.max(tip.x-54,PL),PL+gW-108);
+          const ty=Math.max(tip.y-46,PT);
+          return(
+            <g>
+              <rect x={tx} y={ty} width={108} height={40} rx={6} fill={COLORS.surface} stroke={COLORS.border} strokeWidth="1"/>
+              <circle cx={tx+11} cy={ty+13} r={4} fill={tip.color}/>
+              <text x={tx+19} y={ty+17} fill={COLORS.text} fontSize="10" fontWeight="600">{tip.label}</text>
+              <text x={tx+8} y={ty+32} fill={COLORS.muted} fontSize="9">{fmt(tip.at)} · {tip.v}</text>
+            </g>
+          );
+        })()}
+      </svg>
+    </div>
+  );
+}
+
+function BucketRow({bucket,setBucket,T}){
+  return(
+    <div style={{display:"flex",gap:4,marginBottom:10}}>
+      {Object.keys(BUCKETS).map(b=>(
+        <button key={b} onClick={()=>setBucket(b)}
+          style={{flex:1,padding:"5px 2px",borderRadius:7,fontSize:10,border:`1px solid ${b===bucket?T.accent:COLORS.border}`,background:b===bucket?T.accent:"transparent",color:b===bucket?T.on:COLORS.muted,fontWeight:b===bucket?700:400,cursor:"pointer"}}>
+          {b}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Legend({series,hidden,setHidden}){
+  return(
+    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+      {series.map(s=>{
+        const off=hidden.includes(s.id);
+        return(
+          <button key={s.id} onClick={()=>setHidden(p=>p.includes(s.id)?p.filter(x=>x!==s.id):[...p,s.id])}
+            style={{display:"flex",alignItems:"center",gap:5,padding:"3px 9px",borderRadius:20,fontSize:10,border:`1.5px solid ${s.color}`,background:off?"transparent":s.color+"28",color:off:COLORS.faint?s.color,opacity:off?0.5:1,cursor:"pointer",fontWeight:600}}>
+            <span style={{width:7,height:7,borderRadius:4,background:off?"transparent":s.color,border:`1.5px solid ${s.color}`,display:"inline-block",flexShrink:0}}/>
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Stopwatch ──────────────────────────────────────────────────────────────
+function Stopwatch({sessions,onLog,T}){
+  const [running,setRunning]=useState(false);
+  const [elapsed,setElapsed]=useState(0);
+  const t0=useRef(null),iv=useRef(null);
+  const start=()=>{t0.current=Date.now()-elapsed;iv.current=setInterval(()=>setElapsed(Date.now()-t0.current),50);setRunning(true)};
+  const stop=()=>{clearInterval(iv.current);setRunning(false)};
+  const reset=()=>{clearInterval(iv.current);setRunning(false);setElapsed(0)};
+  const log=()=>{onLog(elapsed);reset()};
+  useEffect(()=>()=>clearInterval(iv.current),[]);
+  return(
+    <div style={{background:"#181410",borderRadius:10,padding:"10px 12px",marginBottom:8,border:`1px solid ${COLORS.border}`}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:20,fontFamily:"monospace",fontWeight:700,color:running?T.light:COLORS.text,minWidth:95}}>{fmtSW(elapsed)}</span>
+        <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+          <button onClick={running?stop:start}
+            style={{padding:"5px 12px",borderRadius:7,fontSize:12,background:running?T.dim:T.accent,border:`1px solid ${T.accent}`,color:running?T.light:T.on,fontWeight:700,cursor:"pointer"}}>
+            {running?"Pause":"Start"}
+          </button>
+          <button onClick={reset} style={{padding:"5px 10px",borderRadius:7,fontSize:12,background:"transparent",border:`1px solid ${COLORS.border}`,color:COLORS.sub,cursor:"pointer"}}>Reset</button>
+          {!running&&elapsed>0&&<button onClick={log} style={{padding:"5px 10px",borderRadius:7,fontSize:12,background:"#1a2e1a",border:"none",color:"#4ade80",fontWeight:700,cursor:"pointer"}}>Log</button>}
+        </div>
+      </div>
+      {(sessions||[]).length>0&&(
+        <div style={{marginTop:8,maxHeight:72,overflowY:"auto"}}>
+          {[...(sessions||[])].reverse().slice(0,5).map((s,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderTop:`1px solid ${COLORS.border}`,fontSize:11}}>
+              <span style={{color:COLORS.muted}}>{fmt(s.at)}</span>
+              <span style={{color:T.light,fontWeight:600}}>{fmtDur(s.duration)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Global state hook ──────────────────────────────────────────────────────
+function useTheme(){
+  // this gets called from components; we pass T down as prop instead
+  // just a placeholder used in Graph
+  return THEMES.amber;
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────
+function App(){
+  const [data,setData]=useState(()=>loadData());
+  const [modal,setModal]=useState(null); // {type, ...props}
+  const [activeTab,setActiveTab]=useState("all");
+  const [fabOpen,setFabOpen]=useState(false);
+  const [page,setPage]=useState("main"); // main | settings
+
+  useEffect(()=>save(data),[data]);
+
+  const S=data.settings||{theme:"amber",fontSize:14,darkMode:true};
+  const T=THEMES[S.theme]||THEMES.amber;
+  const fs=S.fontSize||14;
+
+  function upd(fn){
+    setData(prev=>{
+      const next=JSON.parse(JSON.stringify(prev));
+      if(!next.settings)next.settings={theme:"amber",fontSize:14,darkMode:true};
+      fn(next);
+      return next;
+    });
+  }
+
+  function openModal(m){setModal(m);setFabOpen(false)}
+  function closeModal(){setModal(null)}
+
+  // ── Data ops ──
+  const addFolder=name=>upd(d=>d.folders.push({id:uid(),name,createdAt:now()}));
+  const addCard=(name,folderId)=>upd(d=>d.cards.push({id:uid(),name,folderId:folderId||null,counters:[],stopwatchSessions:[],createdAt:now()}));
+  const deleteFolder=id=>upd(d=>{d.folders=d.folders.filter(f=>f.id!==id);d.cards=d.cards.map(c=>c.folderId===id?{...c,folderId:null}:c)});
+  const deleteCard=id=>upd(d=>{d.cards=d.cards.filter(c=>c.id!==id)});
+  const renameCard=(id,name)=>upd(d=>{const c=d.cards.find(x=>x.id===id);if(c)c.name=name});
+  const moveCard=(id,folderId)=>upd(d=>{const c=d.cards.find(x=>x.id===id);if(c)c.folderId=folderId});
+  const addCounter=(cardId,name)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(c)c.counters.push({id:uid(),name,value:0,history:[{value:0,at:now(),action:"created",delta:0}]})});
+  const deleteCounter=(cardId,cid)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(c)c.counters=c.counters.filter(x=>x.id!==cid)});
+  const changeCounter=(cardId,cid,delta)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(!c)return;const co=c.counters.find(x=>x.id===cid);if(!co)return;co.value+=delta;co.history.push({value:co.value,at:now(),action:delta>0?"increment":"decrement",delta})});
+  const setCounter=(cardId,cid,val)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(!c)return;const co=c.counters.find(x=>x.id===cid);if(!co)return;const delta=val-co.value;co.value=val;co.history.push({value:val,at:now(),action:"manual",delta})});
+  const resetCounter=(cardId,cid)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(!c)return;const co=c.counters.find(x=>x.id===cid);if(!co)return;co.value=0;co.history.push({value:0,at:now(),action:"reset",delta:0})});
+  const logSW=(cardId,ms)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(c){if(!c.stopwatchSessions)c.stopwatchSessions=[];c.stopwatchSessions.push({duration:ms,at:now()})}});
+
+  const tabs=[{id:"all",label:"All"},...data.folders.map(f=>({id:f.id,label:f.name})),...(data.cards.some(c=>!c.folderId)&&data.folders.length?[{id:"_none",label:"Other"}]:[])];
+  const visCards=activeTab==="all"?data.cards:activeTab==="_none"?data.cards.filter(c=>!c.folderId):data.cards.filter(c=>c.folderId===activeTab);
+  const activeFolder=data.folders.find(f=>f.id===activeTab);
+
+  if(page==="settings") return <SettingsPage S={S} T={T} fs={fs} onClose={()=>setPage("main")} upd={upd}/>;
+
+  return(
+    <div style={{minHeight:"100vh",background:COLORS.bg,color:COLORS.text,paddingBottom:110,fontSize:fs}}>
+
+      {/* ── Header ── */}
+      <div style={{background:COLORS.bg,borderBottom:`1px solid ${COLORS.border}`,position:"sticky",top:0,zIndex:50}}>
+        <div style={{padding:"13px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",maxWidth:520,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <div style={{width:30,height:30,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:T.on}}>N</div>
+            <span style={{fontSize:fs*1.25,fontWeight:700,color:COLORS.text}}>Counter Nest</span>
+          </div>
+          <div style={{display:"flex",gap:7}}>
+            <HBtn onClick={()=>openModal({type:"addFolder"})} title="New folder">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </HBtn>
+            <HBtn onClick={()=>setPage("settings")}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            </HBtn>
+          </div>
+        </div>
+        {/* Tabs */}
+        {tabs.length>1&&(
+          <div style={{display:"flex",overflowX:"auto",maxWidth:520,margin:"0 auto",borderTop:`1px solid ${COLORS.border}`}}>
+            {tabs.map(tab=>(
+              <button key={tab.id} onClick={()=>setActiveTab(tab.id)}
+                style={{padding:"9px 15px",background:"transparent",border:"none",borderBottom:`2.5px solid ${activeTab===tab.id?T.accent:"transparent"}`,color:activeTab===tab.id?T.accent:COLORS.muted,fontSize:fs*0.87,fontWeight:activeTab===tab.id?700:400,cursor:"pointer",whiteSpace:"nowrap",transition:"color 0.15s"}}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Folder toolbar */}
+      {activeFolder&&(
+        <div style={{padding:"8px 12px",maxWidth:520,margin:"0 auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <FolderBtn onClick={()=>openModal({type:"graph",title:`Graph — ${activeFolder.name}`,series:buildFolderSeries(activeFolder,data.cards)})}>
+            📈 Graph
+          </FolderBtn>
+          <FolderBtn onClick={()=>openModal({type:"export",target:{kind:"folder",folder:activeFolder},cards:data.cards})}>
+            ⬇ Export CSV
+          </FolderBtn>
+          <FolderBtn danger onClick={()=>openModal({type:"confirm",msg:`Delete folder "${activeFolder.name}"? Cards move to standalone.`,onYes:()=>{deleteFolder(activeFolder.id);setActiveTab("all")}})}>
+            🗑 Delete folder
+          </FolderBtn>
+        </div>
+      )}
+
+      {/* Cards */}
+      <div style={{padding:"10px 12px 0",maxWidth:520,margin:"0 auto"}}>
+        {visCards.length===0&&(
+          <div style={{textAlign:"center",padding:"70px 20px",color:COLORS.faint}}>
+            <div style={{fontSize:40,marginBottom:14,opacity:0.2}}>⬡</div>
+            <p style={{fontSize:fs*1.05,fontWeight:600,color:COLORS.muted,marginBottom:6}}>{data.cards.length===0?"Your nest is empty":"Nothing here"}</p>
+            <p style={{fontSize:fs*0.88,lineHeight:1.7}}>Tap + to add a card</p>
+          </div>
+        )}
+        {visCards.map(card=>(
+          <CardBlock key={card.id} card={card} T={T} fs={fs} folders={data.folders}
+            onAddCounter={name=>addCounter(card.id,name)}
+            onDeleteCounter={cid=>openModal({type:"confirm",msg:`Delete counter "${card.counters.find(c=>c.id===cid)?.name}"?`,onYes:()=>deleteCounter(card.id,cid)})}
+            onChangeCounter={(cid,delta)=>changeCounter(card.id,cid,delta)}
+            onSetCounter={(cid,val)=>setCounter(card.id,cid,val)}
+            onResetCounter={cid=>resetCounter(card.id,cid)}
+            onDeleteCard={()=>openModal({type:"confirm",msg:`Delete card "${card.name}" and all its counters?`,onYes:()=>deleteCard(card.id)})}
+            onRenameCard={name=>renameCard(card.id,name)}
+            onMoveCard={()=>openModal({type:"moveCard",cardId:card.id,folders:data.folders,currentFolderId:card.folderId,onMove:fid=>moveCard(card.id,fid)})}
+            onGraph={()=>openModal({type:"graph",title:`Graph — ${card.name}`,series:buildCardSeries(card)})}
+            onExport={()=>openModal({type:"export",target:{kind:"card",card,folderName:data.folders.find(f=>f.id===card.folderId)?.name}})}
+            onViewHistory={co=>openModal({type:"history",counter:co})}
+            onLogSW={ms=>logSW(card.id,ms)}
+          />
+        ))}
+      </div>
+
+      {/* FAB */}
+      <div style={{position:"fixed",bottom:26,right:18,zIndex:99,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:10}}>
+        {fabOpen&&(
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,animation:"slideUp 0.18s ease"}}>
+              <span style={{fontSize:fs*0.88,fontWeight:500,background:COLORS.surface,border:`1px solid ${COLORS.border}`,borderRadius:9,padding:"6px 13px",whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,0.3)"}}>Add Card</span>
+              <button onClick={()=>openModal({type:"addCard"})}
+                style={{width:44,height:44,borderRadius:12,background:COLORS.surface,border:`1px solid ${COLORS.border}`,color:COLORS.text,fontSize:22,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(0,0,0,0.3)"}}>▭</button>
+            </div>
+            <div style={{position:"fixed",inset:0,zIndex:-1}} onClick={()=>setFabOpen(false)}/>
+          </>
+        )}
+        <button onClick={()=>setFabOpen(p=>!p)}
+          style={{width:54,height:54,borderRadius:16,background:fabOpen?COLORS.surface:T.accent,border:fabOpen?`1px solid ${COLORS.border}`:"none",color:fabOpen?COLORS.text:T.on,fontSize:28,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${T.accent}55`,transition:"all 0.2s",transform:fabOpen?"rotate(45deg)":"none",cursor:"pointer"}}>+</button>
+      </div>
+
+      {/* Modal layer */}
+      {modal&&<ModalLayer modal={modal} T={T} fs={fs} data={data} onClose={closeModal}/>}
+    </div>
+  );
+}
+
+function buildCardSeries(card){
+  return (card.counters||[]).map((co,i)=>({
+    id:co.id,
+    label:co.name,
+    color:LCOL[i%LCOL.length],
+    history:co.history||[],
+  }));
+}
+function buildFolderSeries(folder,allCards){
+  const cards=allCards.filter(c=>c.folderId===folder.id);
+  const series=[];
+  let idx=0;
+  cards.forEach(card=>{
+    card.counters.forEach(co=>{
+      series.push({id:co.id,label:`${card.name} · ${co.name}`,color:LCOL[idx%LCOL.length],history:co.history||[]});
+      idx++;
+    });
+  });
+  return series;
+}
+
+// ── Card Block ─────────────────────────────────────────────────────────────
+function CardBlock({card,T,fs,folders,onAddCounter,onDeleteCounter,onChangeCounter,onSetCounter,onResetCounter,onDeleteCard,onRenameCard,onMoveCard,onGraph,onExport,onViewHistory,onLogSW}){
+  const [expanded,setExpanded]=useState(false);
+  const [showSW,setShowSW]=useState(false);
+  const [adding,setAdding]=useState(false);
+  const [newName,setNewName]=useState("");
+  const [editName,setEditName]=useState(false);
+  const [draftName,setDraftName]=useState(card.name);
+  const [menuOpen,setMenuOpen]=useState(false);
+  const addRef=useRef(),nameRef=useRef(),menuRef=useRef();
+
+  useEffect(()=>{if(adding&&addRef.current)addRef.current.focus()},[adding]);
+  useEffect(()=>{if(editName&&nameRef.current){nameRef.current.focus();nameRef.current.select()}},[editName]);
+
+  // close menu on outside click
+  useEffect(()=>{
+    if(!menuOpen)return;
+    const fn=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setMenuOpen(false)};
+    setTimeout(()=>document.addEventListener("click",fn),0);
+    return()=>document.removeEventListener("click",fn);
+  },[menuOpen]);
+
+  function submitName(){if(draftName.trim())onRenameCard(draftName.trim());setEditName(false)}
+  function submitCounter(){if(newName.trim()){onAddCounter(newName.trim());setNewName("");setAdding(false)}}
+
+  const menuItems=[
+    {label:"📈 Graph",fn:()=>{setMenuOpen(false);onGraph()}},
+    {label:"⬇ Export CSV",fn:()=>{setMenuOpen(false);onExport()}},
+    {label:"📁 Move to folder",fn:()=>{setMenuOpen(false);onMoveCard()}},
+    {label:"🗑 Delete card",danger:true,fn:()=>{setMenuOpen(false);onDeleteCard()}},
+  ];
+
+  return(
+    <div style={{background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:13,marginBottom:10}}>
+      {/* Header */}
+      <div style={{padding:`${fs*0.8}px ${fs*0.9}px`,display:"flex",alignItems:"center",gap:7}}>
+        {/* Name */}
+        <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>!editName&&setExpanded(p=>!p)}>
+          {editName?(
+            <input ref={nameRef} value={draftName} onChange={e=>setDraftName(e.target.value)}
+              onClick={e=>e.stopPropagation()}
+              onBlur={submitName} onKeyDown={e=>{if(e.key==="Enter")submitName();if(e.key==="Escape")setEditName(false)}}
+              style={{background:"transparent",border:"none",borderBottom:`2px solid ${T.accent}`,color:COLORS.text,fontSize:fs,fontWeight:700,outline:"none",padding:"1px 0",width:"100%"}}/>
+          ):(
+            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+              <span onClick={e=>{e.stopPropagation();setEditName(true);setDraftName(card.name)}}
+                style={{fontSize:fs,fontWeight:700,color:COLORS.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"text"}}>{card.name}</span>
+              <span style={{fontSize:fs*0.78,color:COLORS.faint,flexShrink:0}}>{card.counters.length}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Stopwatch button */}
+        <button onClick={()=>{setShowSW(p=>!p);if(!expanded)setExpanded(true)}}
+          style={{width:fs*2.3,height:fs*2.3,borderRadius:7,background:showSW?T.dim:"transparent",border:`1px solid ${showSW?T.accent:COLORS.border}`,color:showSW?T.light:COLORS.muted,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
+
+        {/* 3-dot */}
+        <div ref={menuRef} style={{position:"relative",flexShrink:0}}>
+          <button onClick={e=>{e.stopPropagation();setMenuOpen(p=>!p)}}
+            style={{width:fs*2.3,height:fs*2.3,borderRadius:7,background:menuOpen?COLORS.surface:"transparent",border:`1px solid ${menuOpen?COLORS.border:"transparent"}`,color:COLORS.muted,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+          </button>
+          {menuOpen&&(
+            <div style={{position:"absolute",right:0,top:"110%",background:COLORS.surface,border:`1px solid ${COLORS.border}`,borderRadius:11,zIndex:999,minWidth:175,boxShadow:"0 8px 32px rgba(0,0,0,0.5)",overflow:"hidden",animation:"popIn 0.15s ease"}}>
+              {menuItems.map(({label,fn,danger})=>(
+                <button key={label} onClick={fn}
+                  style={{display:"block",width:"100%",padding:`${fs*0.8}px ${fs*0.9}px`,background:"transparent",border:"none",borderBottom:`1px solid ${COLORS.border}`,color:danger?"#f87171":COLORS.sub,fontSize:fs*0.92,textAlign:"left",cursor:"pointer"}}
+                  onMouseOver={e=>e.currentTarget.style.background=COLORS.card}
+                  onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Arrow */}
+        <button onClick={()=>setExpanded(p=>!p)}
+          style={{width:fs*1.8,height:fs*2.3,background:"transparent",border:"none",color:COLORS.faint,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,transition:"transform 0.2s",transform:expanded?"rotate(90deg)":"rotate(0deg)"}}>▶</button>
+      </div>
+
+      {/* Body */}
+      {expanded&&(
+        <div style={{borderTop:`1px solid ${COLORS.border}`,padding:`${fs*0.6}px ${fs*0.9}px ${fs*0.9}px`}}>
+          {showSW&&<Stopwatch sessions={card.stopwatchSessions} onLog={onLogSW} T={T}/>}
+          {card.counters.length===0&&!adding&&(
+            <p style={{fontSize:fs*0.88,color:COLORS.faint,textAlign:"center",padding:`${fs*0.9}px 0`}}>No counters yet</p>
+          )}
+          {card.counters.map(co=>(
+            <CounterRow key={co.id} co={co} T={T} fs={fs}
+              onChange={delta=>onChangeCounter(co.id,delta)}
+              onSet={val=>onSetCounter(co.id,val)}
+              onMenu={()=>null}
+              onHistory={()=>onViewHistory(co)}
+              onReset={()=>onResetCounter(co.id)}
+              onDelete={()=>onDeleteCounter(co.id)}/>
+          ))}
+          {adding?(
+            <div style={{display:"flex",gap:7,marginTop:fs*0.7,alignItems:"center"}}>
+              <input ref={addRef} value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Counter name…"
+                onKeyDown={e=>{if(e.key==="Enter")submitCounter();if(e.key==="Escape")setAdding(false)}}
+                style={{flex:1,background:COLORS.bg,border:`1.5px solid ${COLORS.border}`,borderRadius:9,padding:`${fs*0.6}px ${fs*0.8}px`,color:COLORS.text,fontSize:fs*0.92,outline:"none"}}/>
+              <button onClick={submitCounter} style={{padding:`${fs*0.5}px ${fs*0.9}px`,borderRadius:8,background:T.accent,border:"none",color:T.on,fontSize:fs*0.88,fontWeight:700,cursor:"pointer"}}>Add</button>
+              <button onClick={()=>setAdding(false)} style={{padding:`${fs*0.5}px ${fs*0.7}px`,borderRadius:8,background:"transparent",border:`1px solid ${COLORS.border}`,color:COLORS.muted,fontSize:fs*0.88,cursor:"pointer"}}>✕</button>
+            </div>
+          ):(
+            <button onClick={()=>setAdding(true)}
+              style={{marginTop:fs*0.7,background:"transparent",border:`1.5px dashed ${COLORS.border}`,borderRadius:9,color:COLORS.faint,fontSize:fs*0.9,padding:`${fs*0.65}px ${fs*0.9}px`,width:"100%",cursor:"pointer"}}
+              onMouseOver={e=>e.currentTarget.style.borderColor=T.accent}
+              onMouseOut={e=>e.currentTarget.style.borderColor=COLORS.border}>
+              + Add Counter
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Counter Row ────────────────────────────────────────────────────────────
+function CounterRow({co,T,fs,onChange,onSet,onHistory,onReset,onDelete}){
+  const [editing,setEditing]=useState(false);
+  const [val,setVal]=useState("");
+  const [menuOpen,setMenuOpen]=useState(false);
+  const inpRef=useRef(),menuRef=useRef();
+
+  useEffect(()=>{if(editing&&inpRef.current){inpRef.current.focus();inpRef.current.select()}},[editing]);
+  useEffect(()=>{
+    if(!menuOpen)return;
+    const fn=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setMenuOpen(false)};
+    setTimeout(()=>document.addEventListener("click",fn),0);
+    return()=>document.removeEventListener("click",fn);
+  },[menuOpen]);
+
+  function commit(){const v=parseFloat(val);if(!isNaN(v))onSet(v);setEditing(false)}
+
+  const items=[
+    {label:"📋 History",fn:()=>{setMenuOpen(false);onHistory()}},
+    {label:"↺ Reset to 0",fn:()=>{setMenuOpen(false);onReset()}},
+    {label:"🗑 Delete",danger:true,fn:()=>{setMenuOpen(false);onDelete()}},
+  ];
+
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:7,padding:`${fs*0.65}px 0`,borderBottom:`1px solid #1a1610`}}>
+      <span style={{flex:1,fontSize:fs*0.9,color:COLORS.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.name}</span>
+      <button onClick={()=>onChange(-1)} style={{width:fs*2.5,height:fs*2.5,borderRadius:8,background:COLORS.surface,border:`1.5px solid ${COLORS.border}`,color:COLORS.text,fontSize:fs*1.4,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>−</button>
+      {editing?(
+        <input ref={inpRef} value={val} onChange={e=>setVal(e.target.value)}
+          onBlur={commit} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape")setEditing(false)}}
+          style={{width:fs*3.8,background:COLORS.surface,border:`1.5px solid ${T.accent}`,borderRadius:7,padding:"3px 4px",color:COLORS.text,fontSize:fs,fontWeight:700,textAlign:"center",outline:"none",flexShrink:0}}/>
+      ):(
+        <span onClick={()=>{setVal(String(co.value));setEditing(true)}}
+          style={{fontSize:fs*1.1,fontWeight:700,color:COLORS.text,minWidth:fs*2.8,textAlign:"center",cursor:"text",borderRadius:6,border:`1px dashed ${COLORS.border}`,padding:`2px ${fs*0.3}px`,flexShrink:0}}>{co.value}</span>
+      )}
+      <button onClick={()=>onChange(1)} style={{width:fs*2.5,height:fs*2.5,borderRadius:8,background:T.accent,border:"none",color:T.on,fontSize:fs*1.4,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,flexShrink:0}}>+</button>
+      {/* counter 3-dot */}
+      <div ref={menuRef} style={{position:"relative",flexShrink:0}}>
+        <button onClick={e=>{e.stopPropagation();setMenuOpen(p=>!p)}}
+          style={{width:fs*2,height:fs*2.5,background:"transparent",border:"none",color:COLORS.faint,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+        </button>
+        {menuOpen&&(
+          <div style={{position:"absolute",right:0,top:"110%",background:COLORS.surface,border:`1px solid ${COLORS.border}`,borderRadius:10,zIndex:999,minWidth:155,boxShadow:"0 8px 32px rgba(0,0,0,0.5)",overflow:"hidden",animation:"popIn 0.15s ease"}}>
+            {items.map(({label,fn,danger})=>(
+              <button key={label} onClick={fn}
+                style={{display:"block",width:"100%",padding:"9px 13px",background:"transparent",border:"none",borderBottom:`1px solid ${COLORS.border}`,color:danger?"#f87171":COLORS.sub,fontSize:13,textAlign:"left",cursor:"pointer"}}
+                onMouseOver={e=>e.currentTarget.style.background=COLORS.card}
+                onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Layer ────────────────────────────────────────────────────────────
+function ModalLayer({modal,T,fs,data,onClose}){
+  const {type}=modal;
+
+  if(type==="confirm") return(
+    <Backdrop onClose={onClose}>
+      <Box title="Confirm" onClose={onClose} fs={fs}>
+        <p style={{fontSize:fs,color:COLORS.sub,marginBottom:fs*1.3,lineHeight:1.6}}>{modal.msg}</p>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <MBtn onClick={onClose} fs={fs}>Cancel</MBtn>
+          <MBtn danger onClick={()=>{modal.onYes();onClose()}} fs={fs}>Delete</MBtn>
+        </div>
+      </Box>
+    </Backdrop>
+  );
+
+  if(type==="addFolder") return(
+    <Backdrop onClose={onClose}>
+      <AddItemBox title="New Folder" placeholder="Folder name…" T={T} fs={fs} onClose={onClose}
+        onSubmit={name=>{
+          // call upd through prop chain - we do it via a trick: pass callback
+          modal.onAdd?.(name);
+        }}/>
+    </Backdrop>
+  );
+
+  if(type==="addCard") return(
+    <Backdrop onClose={onClose}>
+      <AddCardBox T={T} fs={fs} folders={data.folders} onClose={onClose} onAdd={modal.onAdd}/>
+    </Backdrop>
+  );
+
+  if(type==="history") return(
+    <Backdrop onClose={onClose}>
+      <Box title={`History — ${modal.counter.name}`} onClose={onClose} fs={fs}>
+        <div style={{maxHeight:300,overflowY:"auto",marginBottom:fs}}>
+          {[...(modal.counter.history||[])].reverse().map((h,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${fs*0.6}px 0`,borderBottom:`1px solid ${COLORS.border}`}}>
+              <div>
+                <span style={{fontSize:fs*0.9,color:COLORS.muted,textTransform:"capitalize"}}>{h.action}</span>
+                <span style={{fontSize:fs*0.78,color:COLORS.faint,marginLeft:8}}>{fmtFull(h.at)}</span>
+              </div>
+              <span style={{fontSize:fs*1.05,fontWeight:700,color:COLORS.text}}>{h.value}</span>
+            </div>
+          ))}
+          {!(modal.counter.history?.length)&&<p style={{fontSize:fs*0.9,color:COLORS.faint,textAlign:"center",padding:fs}}>No history</p>}
+        </div>
+        <MBtn full onClick={onClose} fs={fs}>Close</MBtn>
+      </Box>
+    </Backdrop>
+  );
+
+  if(type==="graph") return(
+    <Backdrop onClose={onClose}>
+      <Box title={modal.title} onClose={onClose} fs={fs}>
+        <Graph series={modal.series} T={T}/>
+        <div style={{marginTop:fs}}><MBtn full onClick={onClose} fs={fs}>Close</MBtn></div>
+      </Box>
+    </Backdrop>
+  );
+
+  if(type==="moveCard") return(
+    <Backdrop onClose={onClose}>
+      <Box title="Move Card" onClose={onClose} fs={fs}>
+        {[{id:null,name:"No folder (standalone)"},...modal.folders].map(f=>{
+          const active=modal.currentFolderId===(f.id??null);
+          return(
+            <button key={f.id??"none"} onClick={()=>{modal.onMove(f.id??null);onClose()}}
+              style={{display:"block",width:"100%",textAlign:"left",padding:`${fs*0.8}px ${fs*0.9}px`,marginBottom:7,borderRadius:10,background:active?T.dim:"transparent",border:`1.5px solid ${active?T.accent:COLORS.border}`,color:active?T.light:COLORS.sub,fontSize:fs,cursor:"pointer",boxSizing:"border-box"}}>
+              {f.name}{active?" ✓":""}
+            </button>
+          );
+        })}
+        <MBtn full onClick={onClose} fs={fs}>Cancel</MBtn>
+      </Box>
+    </Backdrop>
+  );
+
+  if(type==="export") return(
+    <Backdrop onClose={onClose}>
+      <ExportBox modal={modal} T={T} fs={fs} onClose={onClose}/>
+    </Backdrop>
+  );
+
+  return null;
+}
+
+function ExportBox({modal,T,fs,onClose}){
+  const [range,setRange]=useState("30d");
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+  const ranges=[["7d","Last 7 days"],["30d","Last 30 days"],["90d","Last 3 months"],["1y","Last year"],["all","All time"],["custom","Custom range"]];
+  function go(){
+    if(modal.target.kind==="card")exportCardCSV(modal.target.card,modal.target.folderName,range,from,to);
+    else exportFolderCSV(modal.target.folder,modal.cards,range,from,to);
+    onClose();
+  }
+  return(
+    <Box title="Export CSV" onClose={onClose} fs={fs}>
+      <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:fs}}>
+        {ranges.map(([v,l])=>(
+          <button key={v} onClick={()=>setRange(v)}
+            style={{padding:`${fs*0.75}px ${fs*0.9}px`,borderRadius:9,textAlign:"left",background:range===v?T.dim:"transparent",border:`1.5px solid ${range===v?T.accent:COLORS.border}`,color:range===v?T.light:COLORS.sub,fontSize:fs*0.93,cursor:"pointer"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {range==="custom"&&(
+        <div style={{marginBottom:fs,display:"flex",flexDirection:"column",gap:8}}>
+          <label style={{fontSize:fs*0.85,color:COLORS.muted}}>From</label>
+          <input type="date" value={from} onChange={e=>setFrom(e.target.value)} style={{background:COLORS.card,border:`1.5px solid ${COLORS.border}`,borderRadius:9,padding:`${fs*0.65}px ${fs*0.85}px`,color:COLORS.text,fontSize:fs,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+          <label style={{fontSize:fs*0.85,color:COLORS.muted}}>To</label>
+          <input type="date" value={to} onChange={e=>setTo(e.target.value)} style={{background:COLORS.card,border:`1.5px solid ${COLORS.border}`,borderRadius:9,padding:`${fs*0.65}px ${fs*0.85}px`,color:COLORS.text,fontSize:fs,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+        </div>
+      )}
+      <MBtn full primary T={T} onClick={go} fs={fs}>Download CSV</MBtn>
+    </Box>
+  );
+}
+
+// ── Settings Page ──────────────────────────────────────────────────────────
+function SettingsPage({S,T,fs,onClose,upd}){
+  return(
+    <div style={{minHeight:"100vh",background:COLORS.bg,paddingBottom:40}}>
+      <div style={{background:COLORS.bg,borderBottom:`1px solid ${COLORS.border}`,padding:"13px 14px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10}}>
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:COLORS.muted,cursor:"pointer",fontSize:20,lineHeight:1}}>←</button>
+        <span style={{fontSize:fs*1.2,fontWeight:700,color:COLORS.text}}>Settings</span>
+      </div>
+      <div style={{padding:`${fs*1.2}px ${fs}px`,maxWidth:500,margin:"0 auto",display:"flex",flexDirection:"column",gap:12}}>
+        {/* Appearance */}
+        <Section title="Appearance" fs={fs}>
+          <Row label="Dark Mode" fs={fs}>
+            <Tog value={S.darkMode!==false} onChange={()=>upd(d=>d.settings.darkMode=!d.settings.darkMode)} T={T}/>
+          </Row>
+        </Section>
+        {/* Font size */}
+        <Section title="Text Size" fs={fs}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+            <span style={{fontSize:fs,color:COLORS.text}}>Size</span>
+            <span style={{fontSize:fs,color:T.light,fontWeight:700}}>{S.fontSize||14}px</span>
+          </div>
+          <input type="range" min="12" max="20" step="1" value={S.fontSize||14}
+            onChange={e=>upd(d=>d.settings.fontSize=+e.target.value)}
+            style={{width:"100%",accentColor:T.accent,marginBottom:8}}/>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+            <span style={{fontSize:11,color:COLORS.faint}}>Small</span><span style={{fontSize:11,color:COLORS.faint}}>Large</span>
+          </div>
+          <p style={{fontSize:S.fontSize||14,color:COLORS.sub,padding:`${fs*0.6}px ${fs*0.8}px`,background:COLORS.bg,borderRadius:8,border:`1px solid ${COLORS.border}`}}>Preview: Counter Nest</p>
+        </Section>
+        {/* Theme */}
+        <Section title="Color Theme" fs={fs}>
+          <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+            {Object.entries(THEMES).map(([key,th])=>(
+              <button key={key} onClick={()=>upd(d=>d.settings.theme=key)}
+                style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:`${fs*0.65}px ${fs*0.9}px`,borderRadius:11,background:S.theme===key?th.accent+"22":"transparent",border:`2px solid ${S.theme===key?th.accent:COLORS.border}`,flex:"1 1 65px",cursor:"pointer"}}>
+                <div style={{width:22,height:22,borderRadius:11,background:th.accent,boxShadow:S.theme===key?`0 0 10px ${th.accent}88`:""}}/>
+                <span style={{fontSize:fs*0.78,color:S.theme===key?th.accent:COLORS.muted,fontWeight:S.theme===key?700:400}}>{th.name}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+        {/* Data */}
+        <Section title="Data & Export" fs={fs}>
+          <p style={{fontSize:fs*0.88,color:COLORS.faint,lineHeight:1.7}}>All data is saved locally on this device. Export CSV from any card or folder. The CSV is formatted for Excel — columns will be properly separated when opened.</p>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+// ── Small shared UI ────────────────────────────────────────────────────────
+function Backdrop({children,onClose}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16,animation:"fadeIn 0.15s ease"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:400,animation:"popIn 0.18s ease"}}>{children}</div>
+    </div>
+  );
+}
+function Box({title,children,onClose,fs}){
+  return(
+    <div style={{background:COLORS.surface,border:`1px solid ${COLORS.border}`,borderRadius:15,padding:`${fs*1.1}px ${fs*1.2}px`,boxShadow:"0 24px 64px rgba(0,0,0,0.6)",maxHeight:"88vh",overflowY:"auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:fs}}>
+        <span style={{fontSize:fs*1.05,fontWeight:700,color:COLORS.text}}>{title}</span>
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:COLORS.muted,fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+      </div>
+      {children}
+    </div>
+  );
+}
+function MBtn({children,onClick,primary,danger,full,T,fs}){
+  return(
+    <button onClick={onClick} style={{padding:`${(fs||14)*0.65}px ${(fs||14)*1.1}px`,borderRadius:9,fontSize:(fs||14)*0.92,fontWeight:600,background:primary?(T?.accent||"#d4820a"):danger?"#5a1a1a":"transparent",border:`1.5px solid ${primary?(T?.accent||"#d4820a"):danger?"#8a2a2a":COLORS.border}`,color:primary?(T?.on||"#0f0e0c"):danger?"#f87171":COLORS.sub,cursor:"pointer",width:full?"100%":"auto"}}>
+      {children}
+    </button>
+  );
+}
+function HBtn({children,onClick,title}){
+  return(
+    <button onClick={onClick} title={title} style={{width:34,height:34,borderRadius:9,background:"transparent",border:`1px solid ${COLORS.border}`,color:COLORS.muted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}
+      onMouseOver={e=>e.currentTarget.style.color=COLORS.sub} onMouseOut={e=>e.currentTarget.style.color=COLORS.muted}>
+      {children}
+    </button>
+  );
+}
+function FolderBtn({children,onClick,danger}){
+  return(
+    <button onClick={onClick} style={{padding:"6px 12px",borderRadius:8,background:"transparent",border:`1px solid ${danger?"#7f1d1d":COLORS.border}`,color:danger?"#f87171":COLORS.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+      {children}
+    </button>
+  );
+}
+function Section({title,children,fs}){
+  return(
+    <div style={{background:COLORS.card,border:`1px solid ${COLORS.border}`,borderRadius:13,padding:`${fs*0.9}px ${fs*1.1}px`}}>
+      <p style={{fontSize:fs*0.78,color:COLORS.muted,marginBottom:fs*0.85,fontWeight:700,letterSpacing:"0.5px",textTransform:"uppercase"}}>{title}</p>
+      {children}
+    </div>
+  );
+}
+function Row({label,children,fs}){
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+      <span style={{fontSize:fs,color:COLORS.text}}>{label}</span>
+      {children}
+    </div>
+  );
+}
+function Tog({value,onChange,T}){
+  return(
+    <div onClick={onChange} style={{width:46,height:25,borderRadius:13,background:value?T.accent:"#3a3a3a",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+      <div style={{position:"absolute",top:3,left:value?23:3,width:19,height:19,borderRadius:10,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 4px rgba(0,0,0,0.4)"}}/>
+    </div>
+  );
+}
+
+// ── Add modals that need upd (wired differently) ───────────────────────────
+// We handle addFolder and addCard directly in App via modal.onAdd
+// These are the inner components shown in the modal
+function AddItemBox({title,placeholder,T,fs,onClose,onSubmit}){
+  const [name,setName]=useState("");
+  const ref=useRef();
+  useEffect(()=>{setTimeout(()=>ref.current?.focus(),80)},[]);
+  return(
+    <Box title={title} onClose={onClose} fs={fs}>
+      <input ref={ref} value={name} onChange={e=>setName(e.target.value)} placeholder={placeholder}
+        onKeyDown={e=>{if(e.key==="Enter"&&name.trim()){onSubmit(name.trim());onClose()}if(e.key==="Escape")onClose()}}
+        style={{width:"100%",background:COLORS.card,border:`1.5px solid ${COLORS.border}`,borderRadius:9,padding:`${fs*0.7}px ${fs*0.85}px`,color:COLORS.text,fontSize:fs,outline:"none",marginBottom:fs,boxSizing:"border-box"}}/>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <MBtn onClick={onClose} fs={fs}>Cancel</MBtn>
+        <MBtn primary T={T} onClick={()=>{if(name.trim()){onSubmit(name.trim());onClose()}}} fs={fs}>Create</MBtn>
+      </div>
+    </Box>
+  );
+}
+function AddCardBox({T,fs,folders,onClose,onAdd}){
+  const [name,setName]=useState("");
+  const [fid,setFid]=useState("");
+  const ref=useRef();
+  useEffect(()=>{setTimeout(()=>ref.current?.focus(),80)},[]);
+  return(
+    <Box title="New Card" onClose={onClose} fs={fs}>
+      <input ref={ref} value={name} onChange={e=>setName(e.target.value)} placeholder="Card name…"
+        onKeyDown={e=>{if(e.key==="Enter"&&name.trim()){onAdd(name.trim(),fid||null);onClose()}if(e.key==="Escape")onClose()}}
+        style={{width:"100%",background:COLORS.card,border:`1.5px solid ${COLORS.border}`,borderRadius:9,padding:`${fs*0.7}px ${fs*0.85}px`,color:COLORS.text,fontSize:fs,outline:"none",marginBottom:fs,boxSizing:"border-box"}}/>
+      {folders.length>0&&(
+        <select value={fid} onChange={e=>setFid(e.target.value)}
+          style={{width:"100%",background:COLORS.card,border:`1.5px solid ${COLORS.border}`,borderRadius:9,padding:`${fs*0.7}px ${fs*0.85}px`,color:COLORS.text,fontSize:fs,outline:"none",marginBottom:fs,boxSizing:"border-box"}}>
+          <option value="">No folder</option>
+          {folders.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+      )}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <MBtn onClick={onClose} fs={fs}>Cancel</MBtn>
+        <MBtn primary T={T} onClick={()=>{if(name.trim()){onAdd(name.trim(),fid||null);onClose()}}} fs={fs}>Create</MBtn>
+      </div>
+    </Box>
+  );
+}
+
+// ── Wire up addFolder/addCard through App ──────────────────────────────────
+// We override openModal to inject the onAdd callbacks
+function AppWrapper(){
+  const [data,setData]=useState(()=>loadData());
+  useEffect(()=>save(data),[data]);
+
+  function upd(fn){
+    setData(prev=>{
+      const next=JSON.parse(JSON.stringify(prev));
+      if(!next.settings)next.settings={theme:"amber",fontSize:14,darkMode:true};
+      fn(next);
+      return next;
+    });
+  }
+
+  // Patch: pass upd into App via a ref so modal layer can call it
+  return <AppWithUpd data={data} setData={setData} upd={upd}/>;
+}
+
+function AppWithUpd({data,setData,upd}){
+  const [modal,setModal]=useState(null);
+  const [activeTab,setActiveTab]=useState("all");
+  const [fabOpen,setFabOpen]=useState(false);
+  const [page,setPage]=useState("main");
+
+  useEffect(()=>save(data),[data]);
+
+  const S=data.settings||{theme:"amber",fontSize:14,darkMode:true};
+  const T=THEMES[S.theme]||THEMES.amber;
+  const fs=S.fontSize||14;
+
+  function openModal(m){setModal(m);setFabOpen(false)}
+  function closeModal(){setModal(null)}
+
+  const addFolder=name=>upd(d=>d.folders.push({id:uid(),name,createdAt:now()}));
+  const addCard=(name,folderId)=>upd(d=>d.cards.push({id:uid(),name,folderId:folderId||null,counters:[],stopwatchSessions:[],createdAt:now()}));
+  const deleteFolder=id=>upd(d=>{d.folders=d.folders.filter(f=>f.id!==id);d.cards=d.cards.map(c=>c.folderId===id?{...c,folderId:null}:c)});
+  const deleteCard=id=>upd(d=>{d.cards=d.cards.filter(c=>c.id!==id)});
+  const renameCard=(id,name)=>upd(d=>{const c=d.cards.find(x=>x.id===id);if(c)c.name=name});
+  const moveCard=(id,folderId)=>upd(d=>{const c=d.cards.find(x=>x.id===id);if(c)c.folderId=folderId});
+  const addCounter=(cardId,name)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(c)c.counters.push({id:uid(),name,value:0,history:[{value:0,at:now(),action:"created",delta:0}]})});
+  const deleteCounter=(cardId,cid)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(c)c.counters=c.counters.filter(x=>x.id!==cid)});
+  const changeCounter=(cardId,cid,delta)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(!c)return;const co=c.counters.find(x=>x.id===cid);if(!co)return;co.value+=delta;co.history.push({value:co.value,at:now(),action:delta>0?"increment":"decrement",delta})});
+  const setCounter=(cardId,cid,val)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(!c)return;const co=c.counters.find(x=>x.id===cid);if(!co)return;const delta=val-co.value;co.value=val;co.history.push({value:val,at:now(),action:"manual",delta})});
+  const resetCounter=(cardId,cid)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(!c)return;const co=c.counters.find(x=>x.id===cid);if(!co)return;co.value=0;co.history.push({value:0,at:now(),action:"reset",delta:0})});
+  const logSW=(cardId,ms)=>upd(d=>{const c=d.cards.find(x=>x.id===cardId);if(c){if(!c.stopwatchSessions)c.stopwatchSessions=[];c.stopwatchSessions.push({duration:ms,at:now()})}});
+
+  const tabs=[{id:"all",label:"All"},...data.folders.map(f=>({id:f.id,label:f.name})),...(data.cards.some(c=>!c.folderId)&&data.folders.length?[{id:"_none",label:"Other"}]:[])];
+  const visCards=activeTab==="all"?data.cards:activeTab==="_none"?data.cards.filter(c=>!c.folderId):data.cards.filter(c=>c.folderId===activeTab);
+  const activeFolder=data.folders.find(f=>f.id===activeTab);
+
+  if(page==="settings") return <SettingsPage S={S} T={T} fs={fs} onClose={()=>setPage("main")} upd={upd}/>;
+
+  return(
+    <div style={{minHeight:"100vh",background:COLORS.bg,color:COLORS.text,paddingBottom:110,fontSize:fs}}>
+      {/* Header */}
+      <div style={{background:COLORS.bg,borderBottom:`1px solid ${COLORS.border}`,position:"sticky",top:0,zIndex:50}}>
+        <div style={{padding:"13px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",maxWidth:520,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <div style={{width:30,height:30,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:T.on}}>N</div>
+            <span style={{fontSize:fs*1.25,fontWeight:700}}>Counter Nest</span>
+          </div>
+          <div style={{display:"flex",gap:7}}>
+            <HBtn onClick={()=>openModal({type:"addFolder",onAdd:addFolder})} title="New folder">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </HBtn>
+            <HBtn onClick={()=>setPage("settings")}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            </HBtn>
+          </div>
+        </div>
+        {tabs.length>1&&(
+          <div style={{display:"flex",overflowX:"auto",maxWidth:520,margin:"0 auto",borderTop:`1px solid ${COLORS.border}`}}>
+            {tabs.map(tab=>(
+              <button key={tab.id} onClick={()=>setActiveTab(tab.id)}
+                style={{padding:"9px 15px",background:"transparent",border:"none",borderBottom:`2.5px solid ${activeTab===tab.id?T.accent:"transparent"}`,color:activeTab===tab.id?T.accent:COLORS.muted,fontSize:fs*0.87,fontWeight:activeTab===tab.id?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Folder toolbar */}
+      {activeFolder&&(
+        <div style={{padding:"8px 12px 0",maxWidth:520,margin:"0 auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <FolderBtn onClick={()=>openModal({type:"graph",title:`Graph — ${activeFolder.name}`,series:buildFolderSeries(activeFolder,data.cards)})}>📈 Folder Graph</FolderBtn>
+          <FolderBtn onClick={()=>openModal({type:"export",target:{kind:"folder",folder:activeFolder},cards:data.cards})}>⬇ Export Folder</FolderBtn>
+          <FolderBtn danger onClick={()=>openModal({type:"confirm",msg:`Delete folder "${activeFolder.name}"? Cards become standalone.`,onYes:()=>{deleteFolder(activeFolder.id);setActiveTab("all")}})}>🗑</FolderBtn>
+        </div>
+      )}
+
+      {/* Cards */}
+      <div style={{padding:"10px 12px 0",maxWidth:520,margin:"0 auto"}}>
+        {visCards.length===0&&(
+          <div style={{textAlign:"center",padding:"70px 20px",color:COLORS.faint}}>
+            <div style={{fontSize:40,marginBottom:14,opacity:0.2}}>⬡</div>
+            <p style={{fontSize:fs*1.05,fontWeight:600,color:COLORS.muted,marginBottom:6}}>{data.cards.length===0?"Your nest is empty":"Nothing here"}</p>
+            <p style={{fontSize:fs*0.88,lineHeight:1.7}}>Tap + to add a card</p>
+          </div>
+        )}
+        {visCards.map(card=>(
+          <CardBlock key={card.id} card={card} T={T} fs={fs} folders={data.folders}
+            onAddCounter={name=>addCounter(card.id,name)}
+            onDeleteCounter={cid=>openModal({type:"confirm",msg:`Delete "${card.counters.find(c=>c.id===cid)?.name}"?`,onYes:()=>deleteCounter(card.id,cid)})}
+            onChangeCounter={(cid,delta)=>changeCounter(card.id,cid,delta)}
+            onSetCounter={(cid,val)=>setCounter(card.id,cid,val)}
+            onResetCounter={cid=>resetCounter(card.id,cid)}
+            onDeleteCard={()=>openModal({type:"confirm",msg:`Delete card "${card.name}"?`,onYes:()=>deleteCard(card.id)})}
+            onRenameCard={name=>renameCard(card.id,name)}
+            onMoveCard={()=>openModal({type:"moveCard",cardId:card.id,folders:data.folders,currentFolderId:card.folderId,onMove:fid=>moveCard(card.id,fid)})}
+            onGraph={()=>openModal({type:"graph",title:`Graph — ${card.name}`,series:buildCardSeries(card)})}
+            onExport={()=>openModal({type:"export",target:{kind:"card",card,folderName:data.folders.find(f=>f.id===card.folderId)?.name}})}
+            onViewHistory={co=>openModal({type:"history",counter:co})}
+            onLogSW={ms=>logSW(card.id,ms)}
+          />
+        ))}
+      </div>
+
+      {/* FAB */}
+      <div style={{position:"fixed",bottom:26,right:18,zIndex:99,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:10}}>
+        {fabOpen&&(
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,animation:"slideUp 0.18s ease"}}>
+              <span style={{fontSize:fs*0.88,fontWeight:500,background:COLORS.surface,border:`1px solid ${COLORS.border}`,borderRadius:9,padding:"6px 13px",whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,0.3)"}}>Add Card</span>
+              <button onClick={()=>openModal({type:"addCard",onAdd:addCard})}
+                style={{width:44,height:44,borderRadius:12,background:COLORS.surface,border:`1px solid ${COLORS.border}`,color:COLORS.text,fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(0,0,0,0.3)"}}>▭</button>
+            </div>
+            <div style={{position:"fixed",inset:0,zIndex:-1}} onClick={()=>setFabOpen(false)}/>
+          </>
+        )}
+        <button onClick={()=>setFabOpen(p=>!p)}
+          style={{width:54,height:54,borderRadius:16,background:fabOpen?COLORS.surface:T.accent,border:fabOpen?`1px solid ${COLORS.border}`:"none",color:fabOpen?COLORS.text:T.on,fontSize:28,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${T.accent}55`,transition:"all 0.2s",transform:fabOpen?"rotate(45deg)":"none",cursor:"pointer"}}>+</button>
+      </div>
+
+      {/* Modals */}
+      {modal&&(()=>{
+        const {type}=modal;
+        if(type==="addFolder") return <Backdrop onClose={closeModal}><AddItemBox title="New Folder" placeholder="Folder name…" T={T} fs={fs} onClose={closeModal} onSubmit={modal.onAdd}/></Backdrop>;
+        if(type==="addCard") return <Backdrop onClose={closeModal}><AddCardBox T={T} fs={fs} folders={data.folders} onClose={closeModal} onAdd={modal.onAdd}/></Backdrop>;
+        if(type==="confirm") return <Backdrop onClose={closeModal}><Box title="Confirm" onClose={closeModal} fs={fs}><p style={{fontSize:fs,color:COLORS.sub,marginBottom:fs*1.2,lineHeight:1.6}}>{modal.msg}</p><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><MBtn onClick={closeModal} fs={fs}>Cancel</MBtn><MBtn danger onClick={()=>{modal.onYes();closeModal()}} fs={fs}>Delete</MBtn></div></Box></Backdrop>;
+        if(type==="history") return <Backdrop onClose={closeModal}><Box title={`History — ${modal.counter.name}`} onClose={closeModal} fs={fs}><div style={{maxHeight:300,overflowY:"auto",marginBottom:fs}}>{[...(modal.counter.history||[])].reverse().map((h,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${fs*0.6}px 0`,borderBottom:`1px solid ${COLORS.border}`}}><div><span style={{fontSize:fs*0.9,color:COLORS.muted,textTransform:"capitalize"}}>{h.action}</span><span style={{fontSize:fs*0.78,color:COLORS.faint,marginLeft:8}}>{fmtFull(h.at)}</span></div><span style={{fontSize:fs,fontWeight:700}}>{h.value}</span></div>)}{!(modal.counter.history?.length)&&<p style={{textAlign:"center",color:COLORS.faint,padding:fs,fontSize:fs*0.9}}>No history</p>}</div><MBtn full onClick={closeModal} fs={fs}>Close</MBtn></Box></Backdrop>;
+        if(type==="graph") return <Backdrop onClose={closeModal}><Box title={modal.title} onClose={closeModal} fs={fs}><Graph series={modal.series} T={T}/><div style={{marginTop:fs}}><MBtn full onClick={closeModal} fs={fs}>Close</MBtn></div></Box></Backdrop>;
+        if(type==="moveCard") return <Backdrop onClose={closeModal}><Box title="Move Card" onClose={closeModal} fs={fs}>{[{id:null,name:"No folder (standalone)"},...modal.folders].map(f=>{const active=modal.currentFolderId===(f.id??null);return <button key={f.id??"none"} onClick={()=>{modal.onMove(f.id??null);closeModal()}} style={{display:"block",width:"100%",textAlign:"left",padding:`${fs*0.8}px ${fs*0.9}px`,marginBottom:7,borderRadius:10,background:active?T.dim:"transparent",border:`1.5px solid ${active?T.accent:COLORS.border}`,color:active?T.light:COLORS.sub,fontSize:fs,cursor:"pointer",boxSizing:"border-box"}}>{f.name}{active?" ✓":""}</button>})}<MBtn full onClick={closeModal} fs={fs}>Cancel</MBtn></Box></Backdrop>;
+        if(type==="export") return <Backdrop onClose={closeModal}><ExportBox modal={modal} T={T} fs={fs} onClose={closeModal}/></Backdrop>;
+        return null;
+      })()}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<AppWrapper/>);
+</script>
+<script>
+if("serviceWorker"in navigator){const sw=`const C="cn6",A=["./","./index.html","https://unpkg.com/react@18/umd/react.production.min.js","https://unpkg.com/react-dom@18/umd/react-dom.production.min.js","https://unpkg.com/@babel/standalone/babel.min.js"];self.addEventListener("install",e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(A)));self.skipWaiting()});self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim()});self.addEventListener("fetch",e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))});`;navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:"application/javascript"}))).catch(()=>{})}
+</script>
+</body>
+</html>

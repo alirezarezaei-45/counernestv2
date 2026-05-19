@@ -1,1 +1,1 @@
-An app maid by claude
+An app made by claude

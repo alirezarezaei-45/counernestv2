@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Counter Nest</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;500;600;700;800&display=swap');
+
+  :root {
+    --bg: #0f0e0c;
+    --card-bg: #1e1a12;
+    --border: #2e2618;
+    --accent: #d4820a;
+    --accent-dim: #a3620a;
+    --accent-glow: rgba(212,130,10,0.18);
+    --text: #e8e0cc;
+    --text-dim: #8a7e68;
+    --text-faint: #4a4232;
+    --danger: #c0392b;
+    --success: #27ae60;
+    --font-size: 14px;
+    --radius: 10px;
+    --header-h: 56px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: var(--font-size); }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Header ── */
+  #header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(15,14,12,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    height: var(--header-h);
+    display: flex; align-items: center;
+    padding: 0 12px; gap: 6px;
+  }
+  #app-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.15rem;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    margin-right: 4px;
+  }
+  #tabs-scroll {
+    flex: 1; overflow-x: auto; display: flex; gap: 4px;
+    scrollbar-width: none;
+  }
+  #tabs-scroll::-webkit-scrollbar { display: none; }
+  .tab-btn {
+    background: none; border: 1px solid transparent;
+    color: var(--text-dim); font-family: 'DM Mono', monospace;
+    font-size: 0.78rem; padding: 5px 11px; border-radius: 6px;
+    cursor: pointer; white-space: nowrap; transition: all .18s;
+  }
+  .tab-btn:hover { color: var(--text); border-color: var(--border); }
+  .tab-btn.active {
+    background: var(--accent-glow); border-color: var(--accent);
+    color: var(--accent);
+  }
+  .hdr-icon-btn {
+    background: none; border: 1px solid var(--border);
+    color: var(--text-dim); width: 34px; height: 34px;
+    border-radius: 8px; cursor: pointer; font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .18s; flex-shrink: 0;
+  }
+  .hdr-icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Folder toolbar ── */
+  #folder-toolbar {
+    background: rgba(30,26,18,0.8); border-bottom: 1px solid var(--border);
+    padding: 6px 12px; display: flex; gap: 6px; flex-wrap: wrap;
+    position: sticky; top: var(--header-h); z-index: 99;
+  }
+  .folder-tool-btn {
+    background: none; border: 1px solid var(--border);
+    color: var(--text-dim); font-family: 'DM Mono', monospace;
+    font-size: 0.75rem; padding: 4px 10px; border-radius: 6px;
+    cursor: pointer; transition: all .18s;
+  }
+  .folder-tool-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .folder-tool-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* ── Main ── */
+  #main { padding: 14px 12px 100px; max-width: 720px; margin: 0 auto; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: #3e3220; }
+
+  .card-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid transparent;
+    transition: border-color .2s;
+  }
+  .card.expanded .card-header { border-bottom-color: var(--border); }
+
+  .card-name-wrap { flex: 1; min-width: 0; }
+  .card-name {
+    font-family: 'Syne', sans-serif; font-weight: 600;
+    font-size: 0.92rem; color: var(--text);
+    cursor: pointer; display: inline-block;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 2px 4px; border-radius: 4px; border: 1px solid transparent;
+    transition: border-color .15s;
+  }
+  .card-name:hover { border-color: var(--border); }
+  .card-name-input {
+    font-family: 'Syne', sans-serif; font-weight: 600;
+    font-size: 0.92rem; background: var(--bg); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 4px;
+    padding: 2px 6px; outline: none; width: 100%;
+  }
+
+  .card-stopwatch-display {
+    font-size: 0.75rem; color: var(--accent); font-variant-numeric: tabular-nums;
+    min-width: 58px; text-align: center;
+  }
+
+  .card-hdr-btn {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 1rem; padding: 4px 6px;
+    border-radius: 6px; transition: all .15s; flex-shrink: 0;
+  }
+  .card-hdr-btn:hover { color: var(--accent); background: var(--accent-glow); }
+  .card-hdr-btn.active { color: var(--accent); }
+
+  .collapse-btn {
+    font-size: 0.75rem; transition: transform .2s;
+  }
+  .card.expanded .collapse-btn { transform: rotate(180deg); }
+
+  .card-body { padding: 10px 12px 12px; }
+
+  /* ── Counters ── */
+  .counters-list { display: flex; flex-direction: column; gap: 7px; }
+
+  .counter-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px;
+    transition: border-color .15s;
+  }
+  .counter-row:hover { border-color: #3e3220; }
+
+  .counter-label {
+    flex: 1; min-width: 0;
+    font-size: 0.82rem; color: var(--text-dim);
+    cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 2px 4px; border-radius: 4px; border: 1px solid transparent;
+    transition: border-color .15s;
+  }
+  .counter-label:hover { border-color: var(--border); }
+  .counter-label-input {
+    flex: 1; font-family: 'DM Mono', monospace; font-size: 0.82rem;
+    background: var(--bg); color: var(--text); border: 1px solid var(--accent);
+    border-radius: 4px; padding: 2px 6px; outline: none; min-width: 0;
+  }
+
+  .counter-ctrl-btn {
+    background: var(--card-bg); border: 1px solid var(--border);
+    color: var(--text); width: 30px; height: 30px;
+    border-radius: 6px; cursor: pointer; font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s; flex-shrink: 0;
+  }
+  .counter-ctrl-btn:hover { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+  .counter-ctrl-btn:active { transform: scale(0.92); }
+
+  .counter-value {
+    font-variant-numeric: tabular-nums; font-weight: 500;
+    min-width: 52px; text-align: center; font-size: 1.02rem;
+    cursor: pointer; padding: 3px 6px; border-radius: 5px;
+    border: 1px solid transparent; transition: border-color .15s;
+  }
+  .counter-value:hover { border-color: var(--border); }
+  .counter-value-input {
+    font-family: 'DM Mono', monospace; font-size: 1.02rem;
+    background: var(--bg); color: var(--text); border: 1px solid var(--accent);
+    border-radius: 5px; padding: 3px 6px; outline: none;
+    width: 70px; text-align: center; font-variant-numeric: tabular-nums;
+  }
+
+  .counter-menu-btn {
+    background: none; border: none; color: var(--text-faint);
+    cursor: pointer; font-size: 1rem; padding: 4px 5px;
+    border-radius: 5px; transition: all .15s; flex-shrink: 0;
+  }
+  .counter-menu-btn:hover { color: var(--text-dim); background: var(--border); }
+
+  .add-counter-btn {
+    width: 100%; background: none; border: 1px dashed var(--border);
+    color: var(--text-faint); font-family: 'DM Mono', monospace;
+    font-size: 0.78rem; padding: 7px; border-radius: 7px;
+    cursor: pointer; margin-top: 8px; transition: all .18s;
+  }
+  .add-counter-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Dropdown menus ── */
+  .dropdown {
+    position: absolute; z-index: 200;
+    background: #241f16; border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    min-width: 160px;
+  }
+  .dropdown-item {
+    display: block; width: 100%; background: none; border: none;
+    color: var(--text-dim); font-family: 'DM Mono', monospace;
+    font-size: 0.8rem; padding: 9px 14px; text-align: left;
+    cursor: pointer; transition: all .12s;
+  }
+  .dropdown-item:hover { background: var(--accent-glow); color: var(--text); }
+  .dropdown-item.danger { color: #e57373; }
+  .dropdown-item.danger:hover { background: rgba(192,57,43,0.15); color: var(--danger); }
+
+  /* ── FAB ── */
+  #fab {
+    position: fixed; bottom: 24px; right: 18px; z-index: 150;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--accent); border: none; color: #fff;
+    font-size: 1.6rem; cursor: pointer; display: flex;
+    align-items: center; justify-content: center;
+    box-shadow: 0 4px 18px rgba(212,130,10,0.45);
+    transition: all .2s;
+  }
+  #fab:hover { background: var(--accent-dim); transform: scale(1.07); }
+  #fab:active { transform: scale(0.95); }
+
+  /* ── Modals ── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 300;
+    background: rgba(0,0,0,0.72);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+    animation: fadeIn .15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: #1a1610; border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px 20px;
+    width: 100%; max-width: 440px;
+    max-height: 90vh; overflow-y: auto;
+    animation: slideUp .18s ease;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .modal-title {
+    font-family: 'Syne', sans-serif; font-weight: 700;
+    font-size: 1.05rem; color: var(--accent); margin-bottom: 16px;
+  }
+  .modal-label {
+    font-size: 0.78rem; color: var(--text-dim); margin-bottom: 5px; display: block;
+  }
+  .modal-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.88rem;
+    padding: 9px 12px; border-radius: 7px; outline: none; margin-bottom: 14px;
+    transition: border-color .15s;
+  }
+  .modal-input:focus { border-color: var(--accent); }
+
+  .modal-btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+  .btn-primary {
+    background: var(--accent); border: none; color: #fff;
+    font-family: 'DM Mono', monospace; font-size: 0.82rem;
+    padding: 8px 18px; border-radius: 7px; cursor: pointer; transition: all .15s;
+  }
+  .btn-primary:hover { background: var(--accent-dim); }
+  .btn-secondary {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    font-family: 'DM Mono', monospace; font-size: 0.82rem;
+    padding: 8px 18px; border-radius: 7px; cursor: pointer; transition: all .15s;
+  }
+  .btn-secondary:hover { border-color: var(--text-dim); color: var(--text); }
+  .btn-danger {
+    background: none; border: 1px solid var(--danger); color: var(--danger);
+    font-family: 'DM Mono', monospace; font-size: 0.82rem;
+    padding: 8px 18px; border-radius: 7px; cursor: pointer; transition: all .15s;
+  }
+  .btn-danger:hover { background: rgba(192,57,43,0.15); }
+
+  /* ── Settings ── */
+  #settings-panel {
+    display: none; position: fixed; inset: 0; z-index: 250;
+    background: var(--bg); overflow-y: auto; padding: 16px;
+  }
+  #settings-panel.open { display: block; }
+  .settings-back {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    font-family: 'DM Mono', monospace; font-size: 0.82rem;
+    padding: 7px 14px; border-radius: 7px; cursor: pointer;
+    margin-bottom: 20px; transition: all .15s;
+  }
+  .settings-back:hover { color: var(--accent); border-color: var(--accent); }
+  .settings-section-title {
+    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.85rem;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 10px; margin-top: 20px;
+  }
+  .settings-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  }
+  .settings-label { font-size: 0.82rem; color: var(--text-dim); flex: 1; }
+  .font-slider { flex: 1; accent-color: var(--accent); }
+  .font-preview {
+    font-size: var(--font-size); color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 6px 10px; min-width: 80px; text-align: center;
+  }
+
+  .theme-swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .theme-swatch {
+    width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: all .15s;
+  }
+  .theme-swatch.active { border-color: var(--text); transform: scale(1.15); }
+
+  /* ── Graph ── */
+  .graph-container {
+    position: relative; width: 100%; overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .graph-svg { width: 100%; display: block; }
+
+  .graph-legend {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.74rem; color: var(--text-dim);
+    cursor: pointer; padding: 3px 7px; border-radius: 4px;
+    border: 1px solid transparent; transition: all .15s;
+  }
+  .legend-item.hidden { opacity: 0.35; }
+  .legend-item:hover { border-color: var(--border); }
+  .legend-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .bucket-row {
+    display: flex; gap: 5px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .bucket-btn {
+    background: none; border: 1px solid var(--border);
+    color: var(--text-dim); font-family: 'DM Mono', monospace;
+    font-size: 0.72rem; padding: 3px 9px; border-radius: 5px;
+    cursor: pointer; transition: all .15s;
+  }
+  .bucket-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+
+  /* ── History modal ── */
+  .history-list {
+    max-height: 320px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg);
+  }
+  .history-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 11px; border-bottom: 1px solid var(--border);
+    font-size: 0.77rem;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-action { color: var(--text-dim); }
+  .history-val { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .history-ts { color: var(--text-faint); font-size: 0.7rem; }
+
+  /* ── Graph tooltip ── */
+  .graph-tooltip {
+    position: absolute; background: #241f16; border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 9px; font-size: 0.75rem;
+    pointer-events: none; white-space: nowrap; z-index: 10;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  }
+
+  /* ── Radio/select inside modals ── */
+  .option-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .option-item {
+    display: flex; align-items: center; gap: 9px; cursor: pointer;
+    padding: 8px 11px; border-radius: 7px; border: 1px solid var(--border);
+    font-size: 0.82rem; color: var(--text-dim); transition: all .12s;
+  }
+  .option-item:hover, .option-item.selected {
+    border-color: var(--accent); color: var(--text); background: var(--accent-glow);
+  }
+  .option-item input { accent-color: var(--accent); }
+
+  .date-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .date-row .modal-input { margin-bottom: 0; }
+
+  /* ── Stopwatch log list ── */
+  .sw-sessions {
+    max-height: 200px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg); margin-bottom: 10px;
+  }
+  .sw-session-item {
+    display: flex; justify-content: space-between;
+    padding: 6px 11px; border-bottom: 1px solid var(--border);
+    font-size: 0.76rem; color: var(--text-dim);
+  }
+  .sw-session-item:last-child { border-bottom: none; }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center; padding: 60px 20px;
+    color: var(--text-faint); font-size: 0.85rem;
+  }
+  .empty-state .big-icon { font-size: 2.5rem; margin-bottom: 10px; opacity: .4; }
+
+  /* ── Bump animation ── */
+  @keyframes bump {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+  .bump { animation: bump .18s ease; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header id="header">
+  <span id="app-title">Counter<br style="display:none">Nest</span>
+  <div id="tabs-scroll"></div>
+  <button class="hdr-icon-btn" id="btn-add-folder" title="Add Folder">⊞</button>
+  <button class="hdr-icon-btn" id="btn-settings" title="Settings">⚙</button>
+</header>
+
+<!-- ── Folder toolbar ── -->
+<div id="folder-toolbar" style="display:none"></div>
+
+<!-- ── Main ── -->
+<main id="main"></main>
+
+<!-- ── FAB ── -->
+<button id="fab" title="Add Card">＋</button>
+
+<!-- ── Settings Panel ── -->
+<div id="settings-panel">
+  <div style="max-width:440px;margin:0 auto">
+    <button class="settings-back" id="settings-back">← Back</button>
+    <div class="modal-title">Settings</div>
+
+    <div class="settings-section-title">Font Size</div>
+    <div class="settings-row">
+      <span class="settings-label">Size</span>
+      <input type="range" class="font-slider" id="font-slider" min="12" max="20" step="1" value="14">
+      <div class="font-preview" id="font-preview">14px</div>
+    </div>
+
+    <div class="settings-section-title">Color Theme</div>
+    <div class="theme-swatches" id="theme-swatches"></div>
+
+    <div class="settings-section-title">Button Size</div>
+    <div class="settings-row">
+      <span class="settings-label">Counter Buttons</span>
+      <input type="range" id="btn-size-slider" min="24" max="44" step="2" value="30" style="flex:1;accent-color:var(--accent)">
+      <div class="font-preview" id="btn-size-preview">30px</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal container ── -->
+<div id="modal-root"></div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════════════════
+const LS_KEY = 'counter_nest_v2';
+let DB = {
+  folders: [],   // { id, name }
+  cards: [],     // { id, folderId|null, name, expanded, counters:[{id,name,value,history:[]}], swSessions:[], swState:{running,startMs,elapsed} }
+  settings: { fontSize: 14, theme: 'amber', btnSize: 30 }
+};
+
+function save() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch(e) {}
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      DB = { ...DB, ...parsed };
+      DB.cards.forEach(c => {
+        if (!c.swSessions) c.swSessions = [];
+        if (!c.swState) c.swState = { running: false, startMs: 0, elapsed: 0 };
+        c.counters.forEach(ct => { if (!ct.history) ct.history = []; });
+      });
+    }
+  } catch(e) {}
+}
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function ts() { return new Date().toISOString(); }
+
+// ═══════════════════════════════════════════════════
+// THEMES
+// ═══════════════════════════════════════════════════
+const THEMES = {
+  amber:  { accent: '#d4820a', dim: '#a3620a', glow: 'rgba(212,130,10,0.18)' },
+  blue:   { accent: '#2980b9', dim: '#1f6592', glow: 'rgba(41,128,185,0.18)' },
+  green:  { accent: '#27ae60', dim: '#1e8449', glow: 'rgba(39,174,96,0.18)' },
+  purple: { accent: '#8e44ad', dim: '#6c3483', glow: 'rgba(142,68,173,0.18)' },
+  gray:   { accent: '#7f8c8d', dim: '#626f70', glow: 'rgba(127,140,141,0.18)' },
+};
+const COUNTER_COLORS = ['#d4820a','#2980b9','#27ae60','#8e44ad','#c0392b','#16a085','#d35400','#2c3e50'];
+
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.amber;
+  const r = document.documentElement.style;
+  r.setProperty('--accent', t.accent);
+  r.setProperty('--accent-dim', t.dim);
+  r.setProperty('--accent-glow', t.glow);
+}
+
+// ═══════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, html='') {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html) e.innerHTML = html;
+  return e;
+}
+function closeDropdowns() {
+  document.querySelectorAll('.dropdown').forEach(d => d.remove());
+}
+function closeModals() {
+  $('modal-root').innerHTML = '';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.dropdown') && !e.target.closest('.card-hdr-btn') &&
+      !e.target.closest('.counter-menu-btn')) closeDropdowns();
+});
+
+function showDropdown(anchorEl, items) {
+  closeDropdowns();
+  const d = el('div','dropdown');
+  items.forEach(item => {
+    if (item === '-') {
+      const sep = el('div',''); sep.style.cssText = 'height:1px;background:var(--border);margin:2px 0';
+      d.appendChild(sep); return;
+    }
+    const b = el('button','dropdown-item' + (item.danger ? ' danger':''), item.label);
+    b.onclick = () => { closeDropdowns(); item.action(); };
+    d.appendChild(b);
+  });
+  document.body.appendChild(d);
+  const r = anchorEl.getBoundingClientRect();
+  let top = r.bottom + window.scrollY + 4;
+  let left = r.right - 160;
+  if (left < 4) left = 4;
+  if (left + 164 > window.innerWidth) left = window.innerWidth - 164;
+  d.style.top = top + 'px';
+  d.style.left = left + 'px';
+}
+
+function showModal(content) {
+  closeModals();
+  const ov = el('div','modal-overlay');
+  ov.innerHTML = `<div class="modal">${content}</div>`;
+  ov.addEventListener('mousedown', e => { if (e.target === ov) closeModals(); });
+  $('modal-root').appendChild(ov);
+  return ov.querySelector('.modal');
+}
+
+function confirmDelete(msg, onConfirm) {
+  const m = showModal(`
+    <div class="modal-title">Confirm Delete</div>
+    <p style="font-size:.85rem;color:var(--text-dim);margin-bottom:18px">${msg}</p>
+    <div class="modal-btn-row">
+      <button class="btn-secondary" id="cd-cancel">Cancel</button>
+      <button class="btn-danger" id="cd-ok">Delete</button>
+    </div>`);
+  m.querySelector('#cd-cancel').onclick = closeModals;
+  m.querySelector('#cd-ok').onclick = () => { closeModals(); onConfirm(); };
+}
+
+function formatTs(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+function padZ(n) { return String(n).padStart(2,'0'); }
+
+function formatElapsed(ms) {
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return h > 0 ? `${h}:${padZ(m)}:${padZ(ss)}` : `${padZ(m)}:${padZ(ss)}`;
+}
+
+// ═══════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════
+let activeFolder = 'all'; // 'all' | 'other' | folderId
+let swTimers = {}; // cardId -> intervalId
+
+// ═══════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════
+function render() {
+  renderTabs();
+  renderFolderToolbar();
+  renderCards();
+}
+
+function renderTabs() {
+  const scroll = $('tabs-scroll');
+  scroll.innerHTML = '';
+  const tabs = [{ id:'all', label:'All' }];
+  DB.folders.forEach(f => tabs.push({ id: f.id, label: f.name }));
+  const hasStandalone = DB.cards.some(c => !c.folderId);
+  if (DB.folders.length > 0 && hasStandalone) tabs.push({ id:'other', label:'Other' });
+
+  tabs.forEach(t => {
+    const b = el('button','tab-btn' + (activeFolder===t.id ? ' active':''), t.label);
+    b.onclick = () => { activeFolder = t.id; render(); };
+    scroll.appendChild(b);
+  });
+}
+
+function renderFolderToolbar() {
+  const tb = $('folder-toolbar');
+  if (activeFolder === 'all' || activeFolder === 'other' || !DB.folders.find(f=>f.id===activeFolder)) {
+    tb.style.display = 'none'; return;
+  }
+  tb.style.display = 'flex';
+  tb.innerHTML = '';
+  const folder = DB.folders.find(f => f.id === activeFolder);
+
+  const bg = el('button','folder-tool-btn','📊 Graph');
+  bg.onclick = () => showFolderGraph(folder);
+  const be = el('button','folder-tool-btn','↓ Export CSV');
+  be.onclick = () => showExportModal(null, folder.id);
+  const bd = el('button','folder-tool-btn danger','✕ Delete Folder');
+  bd.onclick = () => confirmDelete(`Delete folder "${folder.name}"? Cards will become standalone.`, () => {
+    DB.cards.forEach(c => { if (c.folderId === folder.id) c.folderId = null; });
+    DB.folders = DB.folders.filter(f => f.id !== folder.id);
+    activeFolder = 'all'; save(); render();
+  });
+  tb.appendChild(bg); tb.appendChild(be); tb.appendChild(bd);
+}
+
+function renderCards() {
+  const main = $('main');
+  main.innerHTML = '';
+
+  let cards = DB.cards;
+  if (activeFolder === 'other') cards = cards.filter(c => !c.folderId);
+  else if (activeFolder !== 'all') cards = cards.filter(c => c.folderId === activeFolder);
+
+  if (cards.length === 0) {
+    const empty = el('div','empty-state');
+    empty.innerHTML = '<div class="big-icon">🗂</div><div>No cards yet.<br>Tap + to add one.</div>';
+    main.appendChild(empty); return;
+  }
+
+  cards.forEach(card => main.appendChild(buildCard(card)));
+}
+
+function buildCard(card) {
+  const wrap = el('div', 'card' + (card.expanded !== false ? ' expanded':''));
+  wrap.dataset.cardId = card.id;
+
+  // — Header —
+  const hdr = el('div','card-header');
+
+  const nameWrap = el('div','card-name-wrap');
+  const nameEl = el('span','card-name', card.name);
+  nameEl.title = 'Click to rename';
+  nameEl.onclick = () => startRenameCard(card, nameEl);
+  nameWrap.appendChild(nameEl);
+  hdr.appendChild(nameWrap);
+
+  // Stopwatch display
+  const swDisp = el('span','card-stopwatch-display');
+  swDisp.id = `sw-disp-${card.id}`;
+  swDisp.textContent = card.swState.running
+    ? formatElapsed(card.swState.elapsed + Date.now() - card.swState.startMs)
+    : (card.swState.elapsed > 0 ? formatElapsed(card.swState.elapsed) : '');
+  hdr.appendChild(swDisp);
+
+  // Stopwatch button
+  const swBtn = el('button','card-hdr-btn' + (card.swState.running ? ' active':''), card.swState.running ? '⏸' : '⏱');
+  swBtn.title = 'Stopwatch';
+  swBtn.onclick = () => toggleStopwatch(card.id);
+  hdr.appendChild(swBtn);
+
+  // 3-dot menu
+  const menuBtn = el('button','card-hdr-btn','⋮');
+  menuBtn.title = 'Card menu';
+  menuBtn.onclick = (e) => {
+    e.stopPropagation();
+    showCardMenu(card, menuBtn);
+  };
+  hdr.appendChild(menuBtn);
+
+  // Collapse
+  const colBtn = el('button','card-hdr-btn collapse-btn','▼');
+  colBtn.title = 'Expand/Collapse';
+  colBtn.onclick = () => {
+    card.expanded = card.expanded === false ? true : false;
+    save(); render();
+  };
+  hdr.appendChild(colBtn);
+
+  wrap.appendChild(hdr);
+
+  // — Body —
+  if (card.expanded !== false) {
+    const body = el('div','card-body');
+    const list = el('div','counters-list');
+
+    card.counters.forEach(ct => list.appendChild(buildCounter(card, ct)));
+
+    const addBtn = el('button','add-counter-btn','+ Add Counter');
+    addBtn.onclick = () => addCounter(card.id);
+    list.appendChild(addBtn);
+
+    body.appendChild(list);
+    wrap.appendChild(body);
+  }
+
+  // Restart timer if running
+  if (card.swState.running && !swTimers[card.id]) {
+    startSwTimer(card.id);
+  }
+
+  return wrap;
+}
+
+function buildCounter(card, ct) {
+  const row = el('div','counter-row');
+  row.dataset.ctId = ct.id;
+
+  // Label
+  const lblEl = el('span','counter-label', ct.name);
+  lblEl.title = 'Click to rename';
+  lblEl.onclick = () => startRenameCounter(card, ct, lblEl);
+  row.appendChild(lblEl);
+
+  // Dec
+  const decBtn = el('button','counter-ctrl-btn','−');
+  decBtn.onclick = () => changeCounter(card.id, ct.id, -1, decBtn);
+  row.appendChild(decBtn);
+
+  // Value
+  const valEl = el('span','counter-value', ct.value);
+  valEl.onclick = () => startEditValue(card, ct, valEl);
+  row.appendChild(valEl);
+
+  // Inc
+  const incBtn = el('button','counter-ctrl-btn','+');
+  incBtn.onclick = () => changeCounter(card.id, ct.id, +1, incBtn);
+  row.appendChild(incBtn);
+
+  // Menu
+  const menuBtn = el('button','counter-menu-btn','⋯');
+  menuBtn.onclick = (e) => { e.stopPropagation(); showCounterMenu(card, ct, menuBtn); };
+  row.appendChild(menuBtn);
+
+  // Apply btn size
+  applyBtnSize(decBtn); applyBtnSize(incBtn);
+
+  return row;
+}
+
+function applyBtnSize(btn) {
+  const sz = DB.settings.btnSize || 30;
+  btn.style.width = sz + 'px';
+  btn.style.height = sz + 'px';
+  btn.style.fontSize = Math.round(sz * 0.5) + 'px';
+}
+
+// ═══════════════════════════════════════════════════
+// CARD ACTIONS
+// ═══════════════════════════════════════════════════
+function startRenameCard(card, nameEl) {
+  const inp = el('input','card-name-input');
+  inp.value = card.name;
+  nameEl.replaceWith(inp);
+  inp.focus(); inp.select();
+  const finish = () => {
+    const v = inp.value.trim() || card.name;
+    card.name = v; save(); render();
+  };
+  inp.onblur = finish;
+  inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = card.name; inp.blur(); } };
+}
+
+function showCardMenu(card, anchorEl) {
+  showDropdown(anchorEl, [
+    { label: '📊 Graph', action: () => showCardGraph(card) },
+    { label: '↓ Export CSV', action: () => showExportModal(card.id, null) },
+    { label: '📂 Move to Folder', action: () => showMoveModal(card) },
+    '-',
+    { label: '✕ Delete Card', danger: true, action: () =>
+        confirmDelete(`Delete card "${card.name}"?`, () => {
+          stopSwTimer(card.id);
+          DB.cards = DB.cards.filter(c => c.id !== card.id);
+          save(); render();
+        })
+    }
+  ]);
+}
+
+function addCard(folderId = null) {
+  const m = showModal(`
+    <div class="modal-title">New Card</div>
+    <label class="modal-label">Card name</label>
+    <input class="modal-input" id="new-card-name" placeholder="e.g. Daily Habits" autofocus>
+    <div class="modal-btn-row">
+      <button class="btn-secondary" id="nc-cancel">Cancel</button>
+      <button class="btn-primary" id="nc-ok">Create</button>
+    </div>`);
+  const input = m.querySelector('#new-card-name');
+  setTimeout(() => input.focus(), 60);
+  m.querySelector('#nc-cancel').onclick = closeModals;
+  const create = () => {
+    const name = input.value.trim() || 'New Card';
+    DB.cards.push({
+      id: uid(), folderId: folderId,
+      name, expanded: true,
+      counters: [], swSessions: [],
+      swState: { running: false, startMs: 0, elapsed: 0 }
+    });
+    save(); closeModals(); render();
+  };
+  m.querySelector('#nc-ok').onclick = create;
+  input.onkeydown = e => { if (e.key === 'Enter') create(); };
+}
+
+function showMoveModal(card) {
+  let opts = `<div class="option-list" id="move-opts">`;
+  opts += `<label class="option-item${!card.folderId?' selected':''}"><input type="radio" name="mv" value="" ${!card.folderId?'checked':''}> Standalone (no folder)</label>`;
+  DB.folders.forEach(f => {
+    opts += `<label class="option-item${card.folderId===f.id?' selected':''}"><input type="radio" name="mv" value="${f.id}" ${card.folderId===f.id?'checked':''}> ${f.name}</label>`;
+  });
+  opts += '</div>';
+  const m = showModal(`<div class="modal-title">Move Card</div>${opts}
+    <div class="modal-btn-row">
+      <button class="btn-secondary" id="mv-cancel">Cancel</button>
+      <button class="btn-primary" id="mv-ok">Move</button>
+    </div>`);
+  m.querySelectorAll('.option-item').forEach(item => {
+    item.onclick = () => {
+      m.querySelectorAll('.option-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      item.querySelector('input').checked = true;
+    };
+  });
+  m.querySelector('#mv-cancel').onclick = closeModals;
+  m.querySelector('#mv-ok').onclick = () => {
+    const checked = m.querySelector('input[name="mv"]:checked');
+    card.folderId = checked ? (checked.value || null) : null;
+    save(); closeModals(); render();
+  };
+}
+
+// ═══════════════════════════════════════════════════
+// COUNTER ACTIONS
+// ═══════════════════════════════════════════════════
+function getCard(cardId) { return DB.cards.find(c => c.id === cardId); }
+function getCounter(card, ctId) { return card.counters.find(ct => ct.id === ctId); }
+
+function changeCounter(cardId, ctId, delta, btn) {
+  const card = getCard(cardId), ct = getCounter(card, ctId);
+  const prev = ct.value;
+  ct.value += delta;
+  ct.history.push({ ts: ts(), prev, value: ct.value, action: delta > 0 ? 'increment' : 'decrement', change: delta });
+  save();
+  // Update DOM directly for performance
+  const row = btn.closest('.counter-row');
+  row.querySelector('.counter-value').textContent = ct.value;
+  // bump
+  btn.classList.remove('bump');
+  void btn.offsetWidth;
+  btn.classList.add('bump');
+}
+
+function startEditValue(card, ct, valEl) {
+  const inp = el('input','counter-value-input');
+  inp.type = 'number'; inp.value = ct.value;
+  valEl.replaceWith(inp);
+  inp.focus(); inp.select();
+  const finish = () => {
+    const v = parseInt(inp.value);
+    if (!isNaN(v) && v !== ct.value) {
+      ct.history.push({ ts: ts(), prev: ct.value, value: v, action: 'manual_set', change: v - ct.value });
+      ct.value = v;
+      save();
+    }
+    // re-render just this counter row
+    const row = inp.closest('.counter-row');
+    if (row) {
+      const newVal = el('span','counter-value', ct.value);
+      newVal.onclick = () => startEditValue(card, ct, newVal);
+      inp.replaceWith(newVal);
+    }
+  };
+  inp.onblur = finish;
+  inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = ct.value; inp.blur(); } };
+}
+
+function startRenameCounter(card, ct, lblEl) {
+  const inp = el('input','counter-label-input');
+  inp.value = ct.name;
+  lblEl.replaceWith(inp);
+  inp.focus(); inp.select();
+  const finish = () => {
+    ct.name = inp.value.trim() || ct.name;
+    save();
+    const newLbl = el('span','counter-label', ct.name);
+    newLbl.onclick = () => startRenameCounter(card, ct, newLbl);
+    inp.replaceWith(newLbl);
+  };
+  inp.onblur = finish;
+  inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = ct.name; inp.blur(); } };
+}
+
+function addCounter(cardId) {
+  const card = getCard(cardId);
+  card.counters.push({ id: uid(), name: 'Counter ' + (card.counters.length + 1), value: 0, history: [] });
+  save(); render();
+}
+
+function showCounterMenu(card, ct, anchorEl) {
+  showDropdown(anchorEl, [
+    { label: '📋 View History', action: () => showHistory(card, ct) },
+    { label: '↺ Reset to 0', action: () => {
+      if (ct.value !== 0) {
+        ct.history.push({ ts: ts(), prev: ct.value, value: 0, action: 'reset', change: -ct.value });
+        ct.value = 0; save(); render();
+      }
+    }},
+    '-',
+    { label: '✕ Delete Counter', danger: true, action: () =>
+        confirmDelete(`Delete counter "${ct.name}"?`, () => {
+          card.counters = card.counters.filter(c => c.id !== ct.id);
+          save(); render();
+        })
+    }
+  ]);
+}
+
+function showHistory(card, ct) {
+  const hist = [...ct.history].reverse();
+  let rows = hist.length === 0
+    ? '<div style="padding:16px;text-align:center;color:var(--text-faint);font-size:.8rem">No history yet</div>'
+    : hist.map(h => `
+      <div class="history-item">
+        <span class="history-action">${h.action.replace('_',' ')}</span>
+        <span class="history-val">${h.change > 0 ? '+':''} ${h.change} → ${h.value}</span>
+        <span class="history-ts">${formatTs(h.ts)}</span>
+      </div>`).join('');
+
+  showModal(`<div class="modal-title">${ct.name} — History</div>
+    <div class="history-list">${rows}</div>
+    <div class="modal-btn-row"><button class="btn-secondary" onclick="closeModals()">Close</button></div>`);
+}
+
+// ═══════════════════════════════════════════════════
+// STOPWATCH
+// ═══════════════════════════════════════════════════
+function toggleStopwatch(cardId) {
+  const card = getCard(cardId);
+  const sw = card.swState;
+  if (sw.running) {
+    // Pause
+    sw.elapsed += Date.now() - sw.startMs;
+    sw.running = false;
+    sw.startMs = 0;
+    stopSwTimer(cardId);
+    // Log session
+    card.swSessions.push({ ts: ts(), elapsed: sw.elapsed });
+    save(); render();
+  } else {
+    // Start
+    sw.running = true;
+    sw.startMs = Date.now();
+    save(); render();
+    startSwTimer(cardId);
+  }
+}
+
+function startSwTimer(cardId) {
+  swTimers[cardId] = setInterval(() => {
+    const card = getCard(cardId);
+    if (!card || !card.swState.running) { stopSwTimer(cardId); return; }
+    const disp = $(`sw-disp-${cardId}`);
+    if (disp) disp.textContent = formatElapsed(card.swState.elapsed + Date.now() - card.swState.startMs);
+  }, 500);
+}
+
+function stopSwTimer(cardId) {
+  clearInterval(swTimers[cardId]);
+  delete swTimers[cardId];
+}
+
+// ═══════════════════════════════════════════════════
+// FOLDER ACTIONS
+// ═══════════════════════════════════════════════════
+function addFolder() {
+  const m = showModal(`
+    <div class="modal-title">New Folder</div>
+    <label class="modal-label">Folder name</label>
+    <input class="modal-input" id="new-folder-name" placeholder="e.g. Work" autofocus>
+    <div class="modal-btn-row">
+      <button class="btn-secondary" id="nf-cancel">Cancel</button>
+      <button class="btn-primary" id="nf-ok">Create</button>
+    </div>`);
+  const input = m.querySelector('#new-folder-name');
+  setTimeout(() => input.focus(), 60);
+  m.querySelector('#nf-cancel').onclick = closeModals;
+  const create = () => {
+    const name = input.value.trim() || 'Folder';
+    DB.folders.push({ id: uid(), name });
+    save(); closeModals(); render();
+  };
+  m.querySelector('#nf-ok').onclick = create;
+  input.onkeydown = e => { if (e.key === 'Enter') create(); };
+}
+
+// ═══════════════════════════════════════════════════
+// GRAPH
+// ═══════════════════════════════════════════════════
+const BUCKETS = [
+  { label:'30min', ms: 30*60*1000 },
+  { label:'2hr',   ms: 2*60*60*1000 },
+  { label:'12hr',  ms: 12*60*60*1000 },
+  { label:'daily', ms: 24*60*60*1000 },
+];
+
+function collectCounterSeries(counters) {
+  // Returns [{name, color, points:[{t,v}]}]
+  return counters.map((ct, i) => {
+    const pts = ct.history.map(h => ({ t: new Date(h.ts).getTime(), v: h.value }));
+    // Prepend initial zero if no history
+    if (pts.length === 0) pts.push({ t: Date.now(), v: ct.value });
+    return { id: ct.id, name: ct.name, color: COUNTER_COLORS[i % COUNTER_COLORS.length], points: pts };
+  });
+}
+
+function bucketize(series, bucketMs) {
+  return series.map(s => {
+    if (s.points.length === 0) return { ...s, points: [] };
+    const min = s.points[0].t, max = s.points[s.points.length - 1].t;
+    const buckets = {};
+    s.points.forEach(p => {
+      const key = Math.floor(p.t / bucketMs) * bucketMs;
+      buckets[key] = p.v; // last value in bucket
+    });
+    const pts = Object.entries(buckets).map(([k,v]) => ({ t: +k, v }));
+    pts.sort((a,b) => a.t - b.t);
+    return { ...s, points: pts };
+  });
+}
+
+function showCardGraph(card) { showGraph(card.counters, `${card.name} — Graph`); }
+function showFolderGraph(folder) {
+  const cards = DB.cards.filter(c => c.folderId === folder.id);
+  const allCounters = cards.flatMap(c => c.counters);
+  showGraph(allCounters, `${folder.name} — Graph`);
+}
+
+function showGraph(counters, title) {
+  if (counters.length === 0) {
+    showModal(`<div class="modal-title">${title}</div>
+      <p style="color:var(--text-faint);font-size:.85rem">No counters to display.</p>
+      <div class="modal-btn-row"><button class="btn-secondary" onclick="closeModals()">Close</button></div>`);
+    return;
+  }
+
+  const m = showModal(`<div class="modal-title">${title}</div>
+    <div class="bucket-row" id="g-buckets"></div>
+    <div class="graph-legend" id="g-legend"></div>
+    <div class="graph-container" id="g-container">
+      <svg class="graph-svg" id="g-svg" viewBox="0 0 520 220" preserveAspectRatio="none"></svg>
+      <div class="graph-tooltip" id="g-tooltip" style="display:none"></div>
+    </div>
+    <div class="modal-btn-row"><button class="btn-secondary" onclick="closeModals()">Close</button></div>`);
+
+  let bucketIdx = 3;
+  const hidden = new Set();
+
+  const bucketRow = m.querySelector('#g-buckets');
+  BUCKETS.forEach((b, i) => {
+    const btn = el('button','bucket-btn' + (i===bucketIdx?' active':''), b.label);
+    btn.onclick = () => { bucketIdx = i; bucketRow.querySelectorAll('.bucket-btn').forEach((b2,j)=>b2.classList.toggle('active',j===i)); drawGraph(); };
+    bucketRow.appendChild(btn);
+  });
+
+  const legendEl = m.querySelector('#g-legend');
+  const rawSeries = collectCounterSeries(counters);
+  rawSeries.forEach(s => {
+    const item = el('div','legend-item');
+    item.innerHTML = `<span class="legend-dot" style="background:${s.color}"></span>${s.name}`;
+    item.dataset.id = s.id;
+    item.onclick = () => {
+      if (hidden.has(s.id)) hidden.delete(s.id); else hidden.add(s.id);
+      item.classList.toggle('hidden', hidden.has(s.id));
+      drawGraph();
+    };
+    legendEl.appendChild(item);
+  });
+
+  function drawGraph() {
+    const svg = m.querySelector('#g-svg');
+    const tooltip = m.querySelector('#g-tooltip');
+    const W = 520, H = 200, PAD = { t:10, r:10, b:38, l:42 };
+    const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const series = bucketize(rawSeries, BUCKETS[bucketIdx].ms)
+      .filter(s => !hidden.has(s.id) && s.points.length > 0);
+
+    if (series.length === 0) { svg.innerHTML = '<text x="260" y="110" text-anchor="middle" fill="#4a4232" font-size="13">No data</text>'; return; }
+
+    const allPts = series.flatMap(s => s.points);
+    const tMin = Math.min(...allPts.map(p=>p.t));
+    const tMax = Math.max(...allPts.map(p=>p.t));
+    const vMin = Math.min(0, ...allPts.map(p=>p.v));
+    const vMax = Math.max(...allPts.map(p=>p.v));
+    const tRange = tMax - tMin || 1;
+    const vRange = vMax - vMin || 1;
+
+    const px = t => PAD.l + ((t - tMin) / tRange) * gW;
+    const py = v => PAD.t + gH - ((v - vMin) / vRange) * gH;
+
+    let html = '';
+
+    // Grid lines
+    for (let i=0;i<=4;i++) {
+      const y = PAD.t + i*(gH/4);
+      const v = Math.round(vMax - i*(vRange/4));
+      html += `<line x1="${PAD.l}" y1="${y}" x2="${W-PAD.r}" y2="${y}" stroke="#2e2618" stroke-width="1"/>`;
+      html += `<text x="${PAD.l-5}" y="${y+4}" text-anchor="end" fill="#4a4232" font-size="9">${v}</text>`;
+    }
+
+    // X axis labels
+    const tickCount = Math.min(5, allPts.length);
+    for (let i=0;i<tickCount;i++) {
+      const t = tMin + (i/(tickCount-1||1))*tRange;
+      const x = px(t);
+      const label = new Date(t).toLocaleDateString([],{month:'short',day:'numeric'});
+      html += `<text x="${x}" y="${H-6}" text-anchor="middle" fill="#4a4232" font-size="8">${label}</text>`;
+    }
+
+    // Defs for gradients
+    html += '<defs>';
+    series.forEach(s => {
+      html += `<linearGradient id="grad-${s.id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${s.color}" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="${s.color}" stop-opacity="0.02"/>
+      </linearGradient>`;
+    });
+    html += '</defs>';
+
+    // Lines & fills
+    series.forEach(s => {
+      if (s.points.length < 2) return;
+      const pts = s.points.map(p => [px(p.t), py(p.v)]);
+      const path = catmullRomPath(pts);
+      const fillPath = path + ` L${pts[pts.length-1][0]},${py(vMin)} L${pts[0][0]},${py(vMin)} Z`;
+      html += `<path d="${fillPath}" fill="url(#grad-${s.id})" stroke="none"/>`;
+      html += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+    });
+
+    // Dots (interactive)
+    const dotData = [];
+    series.forEach(s => {
+      s.points.forEach(p => {
+        const x = px(p.t), y = py(p.v);
+        html += `<circle class="g-dot" cx="${x}" cy="${y}" r="4" fill="${s.color}" stroke="var(--bg)" stroke-width="2"
+          data-label="${s.name}" data-val="${p.v}" data-ts="${new Date(p.t).toLocaleString()}" style="cursor:pointer"/>`;
+      });
+    });
+
+    svg.innerHTML = html;
+
+    // Tooltip events
+    svg.querySelectorAll('.g-dot').forEach(dot => {
+      dot.addEventListener('mouseenter', e => {
+        const rect = m.querySelector('#g-container').getBoundingClientRect();
+        const dr = dot.getBoundingClientRect();
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = `<b>${dot.dataset.label}</b><br>${dot.dataset.val} @ ${dot.dataset.ts}`;
+        tooltip.style.left = (dr.left - rect.left + 8) + 'px';
+        tooltip.style.top = (dr.top - rect.top - 38) + 'px';
+      });
+      dot.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+      dot.addEventListener('touchstart', e => {
+        e.preventDefault();
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = `<b>${dot.dataset.label}</b><br>${dot.dataset.val} @ ${dot.dataset.ts}`;
+        setTimeout(()=>{ tooltip.style.display='none'; }, 2000);
+      }, { passive: false });
+    });
+  }
+
+  drawGraph();
+}
+
+function catmullRomPath(pts) {
+  if (pts.length < 2) return '';
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0,i-1)], p1 = pts[i], p2 = pts[i+1], p3 = pts[Math.min(pts.length-1,i+2)];
+    const cp1x = p1[0] + (p2[0]-p0[0])/6;
+    const cp1y = p1[1] + (p2[1]-p0[1])/6;
+    const cp2x = p2[0] - (p3[0]-p1[0])/6;
+    const cp2y = p2[1] - (p3[1]-p1[1])/6;
+    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+  }
+  return d;
+}
+
+// ═══════════════════════════════════════════════════
+// CSV EXPORT
+// ═══════════════════════════════════════════════════
+const DATE_RANGES = [
+  { label:'Last 7 days',   days: 7 },
+  { label:'Last 30 days',  days: 30 },
+  { label:'Last 3 months', days: 90 },
+  { label:'Last 1 year',   days: 365 },
+  { label:'All time',      days: null },
+  { label:'Custom range',  days: 'custom' },
+];
+
+function showExportModal(cardId, folderId) {
+  let selectedRange = 0;
+  let rangeHtml = DATE_RANGES.map((r,i)=>`
+    <label class="option-item${i===0?' selected':''}">
+      <input type="radio" name="dr" value="${i}" ${i===0?'checked':''}> ${r.label}
+    </label>`).join('');
+
+  const m = showModal(`<div class="modal-title">Export CSV</div>
+    <div class="option-list" id="export-ranges">${rangeHtml}</div>
+    <div id="custom-range-pickers" style="display:none">
+      <div class="date-row">
+        <div style="flex:1"><label class="modal-label">From</label><input type="date" class="modal-input" id="exp-from"></div>
+        <div style="flex:1"><label class="modal-label">To</label><input type="date" class="modal-input" id="exp-to"></div>
+      </div>
+    </div>
+    <div class="modal-btn-row">
+      <button class="btn-secondary" id="exp-cancel">Cancel</button>
+      <button class="btn-primary" id="exp-ok">↓ Download</button>
+    </div>`);
+
+  m.querySelectorAll('.option-item').forEach((item, i) => {
+    item.onclick = () => {
+      m.querySelectorAll('.option-item').forEach(x => x.classList.remove('selected'));
+      item.classList.add('selected');
+      item.querySelector('input').checked = true;
+      selectedRange = i;
+      m.querySelector('#custom-range-pickers').style.display = (DATE_RANGES[i].days === 'custom') ? 'block' : 'none';
+    };
+  });
+
+  m.querySelector('#exp-cancel').onclick = closeModals;
+  m.querySelector('#exp-ok').onclick = () => {
+    const r = DATE_RANGES[selectedRange];
+    let fromMs = 0, toMs = Date.now();
+    if (r.days === 'custom') {
+      const fv = m.querySelector('#exp-from').value;
+      const tv = m.querySelector('#exp-to').value;
+      fromMs = fv ? new Date(fv).getTime() : 0;
+      toMs = tv ? new Date(tv + 'T23:59:59').getTime() : Date.now();
+    } else if (r.days !== null) {
+      fromMs = Date.now() - r.days * 86400000;
+    }
+    doExport(cardId, folderId, fromMs, toMs);
+    closeModals();
+  };
+}
+
+function doExport(cardId, folderId, fromMs, toMs) {
+  let cards = DB.cards;
+  if (cardId) cards = cards.filter(c => c.id === cardId);
+  else if (folderId) cards = cards.filter(c => c.folderId === folderId);
+
+  const BOM = '\uFEFF';
+  let csv = 'sep=,\n' + BOM + 'Folder,Card,Counter,Value,Change,Date,Action\n';
+  cards.forEach(card => {
+    const folderName = card.folderId ? (DB.folders.find(f=>f.id===card.folderId)||{name:''}).name : '';
+    card.counters.forEach(ct => {
+      ct.history.filter(h => {
+        const t = new Date(h.ts).getTime();
+        return t >= fromMs && t <= toMs;
+      }).forEach(h => {
+        const row = [
+          `"${folderName}"`,
+          `"${card.name}"`,
+          `"${ct.name}"`,
+          h.value, h.change,
+          `"${new Date(h.ts).toLocaleString()}"`,
+          `"${h.action}"`
+        ];
+        csv += row.join(',') + '\n';
+      });
+    });
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'counter-nest-export.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════
+function initSettings() {
+  const panel = $('settings-panel');
+
+  // Font slider
+  const fs = $('font-slider');
+  fs.value = DB.settings.fontSize;
+  $('font-preview').textContent = DB.settings.fontSize + 'px';
+  fs.oninput = () => {
+    const v = parseInt(fs.value);
+    DB.settings.fontSize = v;
+    document.documentElement.style.setProperty('--font-size', v + 'px');
+    $('font-preview').textContent = v + 'px';
+    save();
+  };
+
+  // Btn size slider
+  const bs = $('btn-size-slider');
+  bs.value = DB.settings.btnSize || 30;
+  $('btn-size-preview').textContent = (DB.settings.btnSize||30) + 'px';
+  bs.oninput = () => {
+    const v = parseInt(bs.value);
+    DB.settings.btnSize = v;
+    $('btn-size-preview').textContent = v + 'px';
+    save(); render();
+  };
+
+  // Theme swatches
+  const sw = $('theme-swatches');
+  Object.entries(THEMES).forEach(([name, t]) => {
+    const s = el('div','theme-swatch' + (DB.settings.theme===name?' active':''));
+    s.style.background = t.accent;
+    s.title = name;
+    s.onclick = () => {
+      DB.settings.theme = name;
+      applyTheme(name);
+      sw.querySelectorAll('.theme-swatch').forEach(x => x.classList.remove('active'));
+      s.classList.add('active');
+      save();
+    };
+    sw.appendChild(s);
+  });
+
+  $('btn-settings').onclick = () => { panel.classList.add('open'); };
+  $('settings-back').onclick = () => { panel.classList.remove('open'); };
+}
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+function init() {
+  load();
+  applyTheme(DB.settings.theme || 'amber');
+  document.documentElement.style.setProperty('--font-size', (DB.settings.fontSize || 14) + 'px');
+
+  $('btn-add-folder').onclick = addFolder;
+  $('fab').onclick = () => {
+    const fid = (activeFolder !== 'all' && activeFolder !== 'other' && DB.folders.find(f=>f.id===activeFolder))
+      ? activeFolder : null;
+    addCard(fid);
+  };
+
+  initSettings();
+  render();
+}
+
+init();
+</script>
+</body>
+</html>

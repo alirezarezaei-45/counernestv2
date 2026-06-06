@@ -1,8 +1,8 @@
 const CACHE = 'counter-nest-v1';
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  '/counernestv2/',
+  '/counernestv2/index.html',
+  '/counernestv2/manifest.json'
 ];
 
 // Install — cache all assets

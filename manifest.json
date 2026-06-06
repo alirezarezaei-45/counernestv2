@@ -2,7 +2,7 @@
   "name": "Counter Nest",
   "short_name": "CounterNest",
   "description": "Track anything with counters, folders, graphs and CSV export.",
-  "start_url": "/",
+  "start_url": "/counernestv2/",
   "display": "standalone",
   "background_color": "#0f0e0c",
   "theme_color": "#d4820a",
